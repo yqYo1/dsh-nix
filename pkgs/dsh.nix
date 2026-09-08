@@ -56,6 +56,19 @@ stdenv.mkDerivation {
       export npm_config_python=python3
       node-gyp rebuild
     )
+    # fs-ext compiles its C++ binding (build/Release/fs_ext.node) in its own
+    # install script via node-gyp. That script downloads node headers from
+    # nodejs.org, which the build sandbox does not allow, so build the
+    # binding explicitly from the pinned nodejs headers, the same way as
+    # node-pty above. The headless profile loads fs-ext at boot for its
+    # session write lock.
+    (
+      cd node_modules/.pnpm/fs-ext@*/node_modules/fs-ext
+      export HOME="$TMPDIR"
+      export npm_config_nodedir=${nodejs}
+      export npm_config_python=python3
+      node-gyp rebuild
+    )
     pnpm run build
     runHook postBuild
   '';
