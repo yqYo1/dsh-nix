@@ -34,7 +34,17 @@ const { provideCmdline } = await import(lib('packages/boot/cmdline'))
 const { DSH_LAUNCH_ENVIRONMENT_KEY } =
   await import(lib('packages/util/launch-environment'))
 
-healProfilesModuleFallback(installAnchor, home)
+// dsh switched healProfilesModuleFallback from positional
+// (installAnchor, home) to an options object ({ installAnchor, home })
+// after 0.1.1-rc.2. Call the new shape first; the older release throws
+// ERR_INVALID_ARG_TYPE before touching the filesystem when handed an
+// object, so fall back to the positional call on exactly that error.
+try {
+  await healProfilesModuleFallback({ installAnchor, home })
+} catch (err) {
+  if (err?.code !== 'ERR_INVALID_ARG_TYPE') throw err
+  healProfilesModuleFallback(installAnchor, home)
+}
 const profile = loadProfile(NAME, name, installAnchor, home)
 const rootConfig = join(profile.dir, 'cordis.yml')
 const patches = [
