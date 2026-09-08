@@ -18,7 +18,7 @@
 }:
 
 let
-  version = "0.1.1-rc.2";
+  version = "0.1.3-alpha.2";
   # rc.8+ embeds the source commit into client artifacts by shelling out to
   # `git rev-parse HEAD`.  The nix build is a gitless tarball with no `git`
   # in the environment, so we feed the pinned rev instead — the dsh build
@@ -30,7 +30,7 @@ let
     pname = "deepseek-harness";
     inherit version src;
     fetcherVersion = 4;
-    hash = "sha256-+PsdK9u3ZKv4XtSc8tBKKP48J/95/CGTMIUf8Q8dbok=";
+    hash = "sha256-t3wLZiWx9Q/QYRcQ7zB8lepRXXH5t4mE5nEoLHfOJO4=";
   };
 in
 stdenv.mkDerivation {
