@@ -160,11 +160,14 @@
             mkdir -p "$home/profiles"
             cp -a ${self.packages.${system}.web} "$home/profiles/web"
             chmod -R u+w "$home/profiles/web"
-            ${pkgs.nodejs}/bin/node --expose-internals \
+            if ! ${pkgs.nodejs}/bin/node --expose-internals \
               ${./scripts/check-profile.mjs} \
               ${self.packages.${system}.dsh} web "$home" --port 0 \
-              > "$TMPDIR/check.log" 2>&1
-            grep -q 'CHECK-OK' "$TMPDIR/check.log"
+              > "$TMPDIR/check.log" 2>&1; then
+              cat "$TMPDIR/check.log" >&2
+              exit 1
+            fi
+            grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
             touch "$out"
           '';
 
@@ -175,11 +178,14 @@
             mkdir -p "$home/profiles"
             cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
             chmod -R u+w "$home/profiles/headless"
-            ${pkgs.nodejs}/bin/node --expose-internals \
+            if ! ${pkgs.nodejs}/bin/node --expose-internals \
               ${./scripts/check-profile.mjs} \
               ${self.packages.${system}.dsh} headless "$home" "check" \
-              > "$TMPDIR/check.log" 2>&1
-            grep -q 'CHECK-OK' "$TMPDIR/check.log"
+              > "$TMPDIR/check.log" 2>&1; then
+              cat "$TMPDIR/check.log" >&2
+              exit 1
+            fi
+            grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
             touch "$out"
           '';
 
@@ -203,7 +209,8 @@
               echo "profile-boot-web-nobase: expected fail-loud, got success" >&2
               exit 1
             fi
-            grep -q 'did not activate' "$TMPDIR/check.log"
+            grep -q 'did not activate' "$TMPDIR/check.log" \
+              || { cat "$TMPDIR/check.log" >&2; exit 1; }
             touch "$out"
           '';
         });
