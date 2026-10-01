@@ -24,10 +24,20 @@
     flake = false;
   };
 
-  outputs = { self, nixpkgs, dsh }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      dsh,
+    }:
     let
       lib = nixpkgs.lib;
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
       forAllSystems = f: lib.genAttrs systems (system: f system);
 
       plugins = import ./lib/plugins.nix { inherit lib; };
@@ -50,7 +60,14 @@
         inherit profilesLib inBoxNames;
       };
 
-      profiles = { inherit tui tui-spec web headless; };
+      profiles = {
+        inherit
+          tui
+          tui-spec
+          web
+          headless
+          ;
+      };
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
@@ -64,7 +81,13 @@
       };
     in
     {
-      inherit lib plugins profilesLib profiles homeManagerModules;
+      inherit
+        lib
+        plugins
+        profilesLib
+        profiles
+        homeManagerModules
+        ;
       inherit overlay;
 
       overlays.default = overlay;
@@ -75,7 +98,8 @@
         nixpkgs.overlays = [ overlay ];
       };
 
-      packages = forAllSystems (system:
+      packages = forAllSystems (
+        system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
@@ -101,126 +125,159 @@
             inherit pkgs;
             profile = profiles.headless;
           };
-        });
+        }
+      );
 
-      checks = forAllSystems (system:
+      checks = forAllSystems (
+        system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
           tuiArtifact = self.packages.${system}.tui;
           tuiSpecArtifact = self.packages.${system}.tui-spec;
           expectedLayers = builtins.toJSON [ "@dsh-nix/tui-core" ];
-        in {
-          profile-tui = pkgs.runCommand "dsh-profile-tui-check" {
-            nativeBuildInputs = [ pkgs.jq ];
-          } ''
-            package_json=${tuiArtifact}/package.json
-            actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
-            expected_layers=${lib.escapeShellArg expectedLayers}
-            test "$actual_layers" = "$expected_layers"
+        in
+        {
+          profile-tui =
+            pkgs.runCommand "dsh-profile-tui-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+              }
+              ''
+                package_json=${tuiArtifact}/package.json
+                actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
+                expected_layers=${lib.escapeShellArg expectedLayers}
+                test "$actual_layers" = "$expected_layers"
 
-            test -L ${tuiArtifact}/node_modules/@dsh-nix/tui-core
+                test -L ${tuiArtifact}/node_modules/@dsh-nix/tui-core
 
-            touch "$out"
-          '';
+                touch "$out"
+              '';
 
-          profile-tui-spec = pkgs.runCommand "dsh-profile-tui-spec-check" {
-            nativeBuildInputs = [ pkgs.jq ];
-          } ''
-            package_json=${tuiSpecArtifact}/package.json
-            actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
-            expected_layers=${lib.escapeShellArg expectedLayers}
-            test "$actual_layers" = "$expected_layers"
-            test -L ${tuiSpecArtifact}/node_modules/@dsh-nix/tui-core
-            test -L ${tuiSpecArtifact}/node_modules/@dsh-nix
+          profile-tui-spec =
+            pkgs.runCommand "dsh-profile-tui-spec-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+              }
+              ''
+                package_json=${tuiSpecArtifact}/package.json
+                actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
+                expected_layers=${lib.escapeShellArg expectedLayers}
+                test "$actual_layers" = "$expected_layers"
+                test -L ${tuiSpecArtifact}/node_modules/@dsh-nix/tui-core
+                test -L ${tuiSpecArtifact}/node_modules/@dsh-nix
 
-            touch "$out"
-          '';
+                touch "$out"
+              '';
 
-          home-module = pkgs.runCommand "dsh-home-module-check" {
-            src = ./.;
-            nativeBuildInputs = [ pkgs.nix ];
-          } ''
-            cd "$src"
-            NIX_STATE_DIR="$TMPDIR/nix-state" \
-              ${pkgs.nix}/bin/nix-instantiate --eval --strict --json \
-              --arg pkgs 'import ${pkgs.path} {}' \
-              tests/home-module.nix > "$TMPDIR/result.json"
-            ${pkgs.jq}/bin/jq -e '.all == true' "$TMPDIR/result.json" > /dev/null
-            touch "$out"
-          '';
+          home-module =
+            pkgs.runCommand "dsh-home-module-check"
+              {
+                src = ./.;
+                nativeBuildInputs = [ pkgs.nix ];
+              }
+              ''
+                cd "$src"
+                NIX_STATE_DIR="$TMPDIR/nix-state" \
+                  ${pkgs.nix}/bin/nix-instantiate --eval --strict --json \
+                  --arg pkgs 'import ${pkgs.path} {}' \
+                  tests/home-module.nix > "$TMPDIR/result.json"
+                ${pkgs.jq}/bin/jq -e '.all == true' "$TMPDIR/result.json" > /dev/null
+                touch "$out"
+              '';
 
           # Build-time fail-loud: boot each in-box profile with dsh's own
           # boot() (which runs assertEntriesActivated) and dispose.  A
           # profile that would fail at runtime — missing services, failed
           # activation — fails `nix build` here instead.
-          profile-boot-web = pkgs.runCommand "dsh-profile-boot-web-check" {
-            nativeBuildInputs = [ pkgs.nodejs ];
-          } ''
-            home="$TMPDIR/home"
-            mkdir -p "$home/profiles"
-            cp -a ${self.packages.${system}.web} "$home/profiles/web"
-            chmod -R u+w "$home/profiles/web"
-            if ! ${pkgs.nodejs}/bin/node --expose-internals \
-              ${./scripts/check-profile.mjs} \
-              ${self.packages.${system}.dsh} web "$home" --port 0 \
-              > "$TMPDIR/check.log" 2>&1; then
-              cat "$TMPDIR/check.log" >&2
-              exit 1
-            fi
-            grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
-            touch "$out"
-          '';
+          profile-boot-web =
+            pkgs.runCommand "dsh-profile-boot-web-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${self.packages.${system}.web} "$home/profiles/web"
+                chmod -R u+w "$home/profiles/web"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} web "$home" --port 0 \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                touch "$out"
+              '';
 
-          profile-boot-headless = pkgs.runCommand "dsh-profile-boot-headless-check" {
-            nativeBuildInputs = [ pkgs.nodejs ];
-          } ''
-            home="$TMPDIR/home"
-            mkdir -p "$home/profiles"
-            cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
-            chmod -R u+w "$home/profiles/headless"
-            if ! ${pkgs.nodejs}/bin/node --expose-internals \
-              ${./scripts/check-profile.mjs} \
-              ${self.packages.${system}.dsh} headless "$home" "check" \
-              > "$TMPDIR/check.log" 2>&1; then
-              cat "$TMPDIR/check.log" >&2
-              exit 1
-            fi
-            grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
-            touch "$out"
-          '';
+          profile-boot-headless =
+            pkgs.runCommand "dsh-profile-boot-headless-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
+                chmod -R u+w "$home/profiles/headless"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} headless "$home" "check" \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                touch "$out"
+              '';
 
           # Counterexample: web-app without base must fail the boot check
           # with dsh's own fail-loud (pending services), proving the check
           # catches the composition error at build time.
-          profile-boot-web-nobase = pkgs.runCommand "dsh-profile-boot-web-nobase-check" {
-            nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
-          } ''
-            home="$TMPDIR/home"
-            mkdir -p "$home/profiles"
-            cp -a ${self.packages.${system}.web} "$home/profiles/web-nobase"
-            chmod -R u+w "$home/profiles/web-nobase"
-            jq '.dsh.profile.bundles = ["@deepseek-ai/dsh-web-app"]' \
-              "$home/profiles/web-nobase/package.json" > "$TMPDIR/package.json"
-            mv "$TMPDIR/package.json" "$home/profiles/web-nobase/package.json"
-            if ${pkgs.nodejs}/bin/node --expose-internals \
-              ${./scripts/check-profile.mjs} \
-              ${self.packages.${system}.dsh} web-nobase "$home" --port 0 \
-              > "$TMPDIR/check.log" 2>&1; then
-              echo "profile-boot-web-nobase: expected fail-loud, got success" >&2
-              exit 1
-            fi
-            grep -q 'did not activate' "$TMPDIR/check.log" \
-              || { cat "$TMPDIR/check.log" >&2; exit 1; }
-            touch "$out"
-          '';
-        });
+          profile-boot-web-nobase =
+            pkgs.runCommand "dsh-profile-boot-web-nobase-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${self.packages.${system}.web} "$home/profiles/web-nobase"
+                chmod -R u+w "$home/profiles/web-nobase"
+                jq '.dsh.profile.bundles = ["@deepseek-ai/dsh-web-app"]' \
+                  "$home/profiles/web-nobase/package.json" > "$TMPDIR/package.json"
+                mv "$TMPDIR/package.json" "$home/profiles/web-nobase/package.json"
+                if ${pkgs.nodejs}/bin/node --expose-internals \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} web-nobase "$home" --port 0 \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  echo "profile-boot-web-nobase: expected fail-loud, got success" >&2
+                  exit 1
+                fi
+                grep -q 'did not activate' "$TMPDIR/check.log" \
+                  || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                touch "$out"
+              '';
+        }
+      );
 
-      devShells = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system};
-        in {
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
           default = pkgs.mkShell {
-            packages = with pkgs; [ nodejs_22 pnpm yq-go ];
+            packages = with pkgs; [
+              nodejs_22
+              pnpm
+              yq-go
+            ];
           };
-        });
+        }
+      );
     };
 }
