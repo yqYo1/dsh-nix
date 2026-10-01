@@ -116,6 +116,11 @@ let
         mkdir -p /build/project
         cd /build/project
         printf '%s' '{"name":"dsh-profile-plugins","private":true,"version":"0.0.0","type":"module"}' > package.json
+        printf '%s\n' \
+          'packages:' \
+          '  - .' \
+          'strictDepBuilds: false' \
+          > pnpm-workspace.yaml
         ${specCopies}
         pnpm add --ignore-scripts --package-import-method=copy ${lib.escapeShellArgs contextualSpecs}
         node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json")); p.dependencies=Object.fromEntries(Object.keys(p.dependencies||{}).map(k=>[k,"0.0.0"])); fs.writeFileSync("package.json", JSON.stringify(p));'
