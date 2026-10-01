@@ -2,26 +2,29 @@
 
 let
   mkPluginBundle =
-    { packageName ? null, path, patchPath ? null, ... }:
+    {
+      packageName ? null,
+      path,
+      patchPath ? null,
+      ...
+    }:
     let
-      packagePath =
-        if builtins.isPath path then
-          builtins.path { inherit path; }
-        else
-          path;
+      packagePath = if builtins.isPath path then builtins.path { inherit path; } else path;
       # Only local directories are inspectable at evaluation time.  A
       # derivation provides its package.json when built, so treat it as a
       # plain dependency unless the caller declares the patch explicitly.
       inspectable = builtins.isPath path;
       manifest =
         if inspectable then
-          let manifestPath = "${toString path}/package.json";
+          let
+            manifestPath = "${toString path}/package.json";
           in
           if builtins.pathExists manifestPath then
             builtins.fromJSON (builtins.readFile manifestPath)
           else
             throw "dsh plugin bundle: missing package.json at ${manifestPath}"
-        else null;
+        else
+          null;
       resolvedPackageName = if packageName != null then packageName else manifest.name or null;
       checkedPackageName =
         if resolvedPackageName == null || resolvedPackageName == "" then
@@ -29,8 +32,7 @@ let
         else
           resolvedPackageName;
       declaredPatch =
-        if manifest == null then null
-        else (((manifest.dsh or { }).bundle or { }).patch or null);
+        if manifest == null then null else (((manifest.dsh or { }).bundle or { }).patch or null);
       resolvedPatchPath = if patchPath != null then patchPath else declaredPatch;
     in
     {
@@ -41,38 +43,60 @@ let
     };
 
   classifyPlugin =
-    { inBoxNames ? [ ], plugin }:
+    {
+      inBoxNames ? [ ],
+      plugin,
+    }:
     if builtins.isString plugin then
       if builtins.elem plugin inBoxNames then
-        { kind = "in-box"; name = plugin; }
+        {
+          kind = "in-box";
+          name = plugin;
+        }
       else
-        { kind = "spec"; spec = plugin; }
+        {
+          kind = "spec";
+          spec = plugin;
+        }
     else if builtins.isAttrs plugin && plugin ? packageName && plugin ? packagePath then
-      { kind = "nix"; inherit plugin; }
+      {
+        kind = "nix";
+        inherit plugin;
+      }
     else
-      { kind = "nix"; plugin = mkPluginBundle { path = plugin; }; };
+      {
+        kind = "nix";
+        plugin = mkPluginBundle { path = plugin; };
+      };
 
   fetchSpecs =
-    { pkgs, specs, hash ? "" }:
+    {
+      pkgs,
+      specs,
+      hash ? "",
+    }:
     let
       # Preserve store-path context for file: specs.  Without this explicit
       # builtins.storePath reference, the fixed-output derivation has no input
       # source and sandboxed pnpm cannot see the local package.
-      contextualSpecs = lib.imap0
-        (index: spec:
+      contextualSpecs = lib.imap0 (
+        index: spec:
+        if lib.hasPrefix "file:/nix/store/" spec then "file:/build/spec-inputs/${toString index}" else spec
+      ) specs;
+      specCopies = lib.concatStringsSep "\n" (
+        lib.imap0 (
+          index: spec:
           if lib.hasPrefix "file:/nix/store/" spec then
-            "file:/build/spec-inputs/${toString index}"
+            let
+              source = builtins.path { path = lib.removePrefix "file:" spec; };
+            in
+            ''
+              mkdir -p /build/spec-inputs
+                          cp -rL ${lib.escapeShellArg (toString source)} ${lib.escapeShellArg "/build/spec-inputs/${toString index}"}''
           else
-            spec)
-        specs;
-      specCopies = lib.concatStringsSep "\n"
-        (lib.imap0 (index: spec:
-          if lib.hasPrefix "file:/nix/store/" spec then
-            let source = builtins.path { path = lib.removePrefix "file:" spec; };
-            in ''mkdir -p /build/spec-inputs
-            cp -rL ${lib.escapeShellArg (toString source)} ${lib.escapeShellArg "/build/spec-inputs/${toString index}"}''
-          else
-            "") specs);
+            ""
+        ) specs
+      );
     in
     pkgs.stdenv.mkDerivation {
       name = "dsh-spec-plugins";
@@ -80,7 +104,10 @@ let
       # An empty hash is the discovery mode: fakeHash lets evaluation proceed
       # and Nix reports the actual recursive hash at build time.
       outputHash = if hash == "" then lib.fakeHash else hash;
-      nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm ];
+      nativeBuildInputs = [
+        pkgs.nodejs
+        pkgs.pnpm
+      ];
       impureEnvVars = pkgs.lib.fetchers.proxyImpureEnvVars ++ [ "NIX_NPM_REGISTRY" ];
       buildCommand = ''
         export HOME=/build/home
@@ -90,7 +117,7 @@ let
         cd /build/project
         printf '%s' '{"name":"dsh-profile-plugins","private":true,"version":"0.0.0","type":"module"}' > package.json
         ${specCopies}
-        pnpm add --package-import-method=copy ${lib.escapeShellArgs contextualSpecs}
+        pnpm add --ignore-scripts --package-import-method=copy ${lib.escapeShellArgs contextualSpecs}
         node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json")); p.dependencies=Object.fromEntries(Object.keys(p.dependencies||{}).map(k=>[k,"0.0.0"])); fs.writeFileSync("package.json", JSON.stringify(p));'
         mkdir -p node_modules/.dsh-spec
         node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json")); for (const k of Object.keys(p.dependencies||{})) console.log(k);' |
