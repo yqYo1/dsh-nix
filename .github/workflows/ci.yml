@@ -1,0 +1,66 @@
+# Deterministic CI for work branches: pinned Nix, immutable inputs, real checks.
+#
+# Runs on pull requests and on pushes to any branch EXCEPT main (main moves
+# only through reviewed merges, so CI belongs on the branch/PR side).
+# The gate is the repo's own `nix flake check`: profile artifact shape
+# assertions, dsh boot checks for every profile (including the fail-loud
+# counterexample), and the Home Manager module evaluation check — plus an
+# explicit immutability assertion that the `dsh` input is locked to a
+# commit rev (tag pins must resolve, floating refs fail here).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.4.0  # 11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Assert immutable dsh lock (tag must resolve to a rev)
+        run: |
+          set -euo pipefail
+          nix flake metadata --json | jq -e '.locks.nodes.dsh.locked.rev | strings | length == 40' >/dev/null
+
+      - name: Flake check
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)  SYSTEM="x86_64-linux" ;;
+            aarch64) SYSTEM="aarch64-linux" ;;
+            *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          nix flake check --system "${SYSTEM}"
+
+      # Real host Home Manager regression gate (SAME job, AFTER the sandbox
+      # flake check — never a substitute for it). Runs the genuine pinned-HM
+      # activation + profile install + dsh boot in scripts/hm-e2e.sh via the
+      # devShell only, so no duplicate full-monorepo build is added here.
+      - name: Real host Home Manager E2E
+        env:
+          TMPDIR: ${{ runner.temp }}
+          DSH_HM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/dsh-hm-host-e2e
+        run: |
+          set -euo pipefail
+          nix develop --no-write-lock-file -c bash scripts/hm-e2e.sh
+          echo "--- hm host e2e evidence (safe listing, no secrets) ---"
+          find "${DSH_HM_E2E_ARTIFACT_DIR}" -maxdepth 2 | sort

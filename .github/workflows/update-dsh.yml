@@ -1,162 +1,141 @@
-# Keep the fork current on two axes:
+# Tag-only DSH updater: released tags in, draft PRs out, human merge gate kept.
 #
-#   1. PACKAGING: merge new commits from Samuka007/dsh-nix (the repo this
-#      fork tracks). '-X ours' keeps our pin/version/hash lines when the
-#      packaging upstream bumped them too; everything else (packaging
-#      fixes, modules, CI) is taken in.
-#   2. DSH: overlay the latest deepseek-harness HEAD on top — any
-#      upstream change (code, config…) bumps the pin; a new npm version
-#      additionally bumps the version and the pnpm lockfile (store hash
-#      bootstrap).
+# What this workflow does NOT do (deliberate, do not re-add):
+#   - No merge of packaging upstream (Samuka007/dsh-nix), no `-X ours`.
+#     Packaging sync is a human decision with conflicts, not automation fodder.
+#   - No tracking of arbitrary deepseek-harness main HEAD. Only released
+#     `dsh-v*` tags (or an explicit `dsh_tag` dispatch input), re-locked to
+#     an immutable rev + narHash in flake.lock.
+#   - No push to main, no `--force`, no `--admin`/bypass. The only push is
+#     the updater branch itself via an explicit refspec; main moves only
+#     through human PR review + merge.
+#   - No PR from a red build. scripts/update-dsh.sh fails closed (real
+#     `nix build` + `nix flake check`); the PR step never runs then.
 #
-# Result: fork main = latest dsh-nix packaging + latest dsh.
-#
-# The pnpm store hash bootstrap (documented in the pkgs/dsh.nix error
-# hint): build with the stale hash, parse `got: sha256-…` from the
-# fixed-output mismatch, pin it, rebuild.
+# SIGNED-COMMIT CONSTRAINT: automation commits with GITHUB_TOKEN are
+# UNSIGNED. The `signature-gate` step checks main's branch protection: if
+# required_signatures is enforced, the run stops BEFORE push/PR instead of
+# inventing keys or bypassing. If your fork does not enforce signatures,
+# the bot commit works as-is with the permissions below.
 name: update-dsh
 
 on:
   schedule:
-    - cron: "17 3 * * *" # daily 03:17 UTC
+    - cron: "17 3 * * *"  # daily 03:17 UTC
   workflow_dispatch:
+    inputs:
+      dsh_tag:
+        description: "Exact deepseek-harness tag (e.g. dsh-v0.2.0-rc.2); empty = latest dsh-v*"
+        required: false
+        default: ""
 
+# Branch pushes need contents:write, PR creation needs pull-requests:write.
+# Nothing here needs administration, secrets, or checks-bypass scopes.
 permissions:
   contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-dsh
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0  # 11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 0 # full history: the packaging merge needs shared ancestry
+          fetch-depth: 1
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@a7ad9c4f0c65208097f4d34f3cfa1913b80cce5c # main
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31
         with:
-          determinate: false # plain nixpkgs nix, no Determinate Nix/FlakeHub
-          extra-conf: |
+          extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Git identity
         run: |
-          git config user.name "hodorov[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41879575+github-actions[bot]@users.noreply.github.com"
 
-      - name: Sync packaging from Samuka007/dsh-nix
-        id: sync
+      - name: Signature gate (fail closed on signed-commit contracts)
+        id: siggate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # resolve their default branch dynamically (a rename must not
-          # break the poll); force-pushed history would make this merge
-          # fail loudly for manual intervention
-          UPSTREAM_BRANCH=$(curl -sf https://api.github.com/repos/Samuka007/dsh-nix | jq -r .default_branch)
-          git remote add upstream "https://github.com/Samuka007/dsh-nix.git"
-          git fetch -q upstream "${UPSTREAM_BRANCH}"
-          UPSTREAM_HEAD=$(git rev-parse "upstream/${UPSTREAM_BRANCH}")
-          PACKAGING_MERGED=false
-          if git merge-base --is-ancestor "${UPSTREAM_HEAD}" HEAD; then
-            echo "Packaging already up to date at ${UPSTREAM_HEAD:0:8}"
+          # Fail CLOSED on auth/API failures: only a positive "not
+          # protected" answer (or an explicit disabled flag) may proceed.
+          # Any other lookup error stops the run BEFORE unsigned push/PR
+          # instead of assuming signatures are disabled.
+          err_file="$(mktemp)"
+          if required=$(gh api "repos/${GH_REPO}/branches/main/protection" \
+            --jq '.required_signatures.enabled // false' 2>"$err_file"); then
+            :
+          elif grep -qi 'branch not protected' "$err_file"; then
+            # No protection at all: signatures cannot be required.
+            required=false
           else
-            git merge -X ours --no-edit "upstream/${UPSTREAM_BRANCH}"
-            PACKAGING_MERGED=true
+            cat "$err_file" >&2
+            echo "::error::branch-protection lookup failed (auth/API error); refusing to assume signatures are disabled — stopping before push/PR." >&2
+            exit 1
           fi
-          echo "packaging_merged=${PACKAGING_MERGED}" >> "$GITHUB_OUTPUT"
+          echo "required=${required}" >> "$GITHUB_OUTPUT"
+          if [ "$required" = "true" ]; then
+            echo "::notice::main requires signed commits; automation commits are unsigned — stopping before push/PR. Provide a signing setup or run the update manually."
+          fi
 
-      - name: Check dsh upstream
-        id: check
+      - name: Retarget dsh input to released tag (build + check gated)
+        id: bump
+        if: steps.siggate.outputs.required != 'true'
+        env:
+          DSH_TAG_INPUT: ${{ inputs.dsh_tag }}
         run: |
           set -euo pipefail
-          DSH_BRANCH=$(curl -sf https://api.github.com/repos/deepseek-ai/deepseek-harness | jq -r .default_branch)
-          REV=$(curl -sf "https://api.github.com/repos/deepseek-ai/deepseek-harness/commits/${DSH_BRANCH}" | jq -r .sha)
-          VER=$(curl -sfL "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/${DSH_BRANCH}/apps/cli/package.json" | jq -r .version)
-          CUR_REV=$(sed -n 's|.*deepseek-harness/\([0-9a-f]\{40\}\).*|\1|p' flake.nix | head -1)
-          CUR_VER=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";/\1/p' pkgs/dsh.nix | head -1)
-          BUMP=false
-          SAME_VERSION=true
-          if [ "${REV}" != "${CUR_REV}" ]; then BUMP=true; fi
-          if [ "${VER}" != "${CUR_VER}" ]; then SAME_VERSION=false; fi
-          NEED_BUILD=false
-          if [ "${BUMP}" = "true" ] || [ "${{ steps.sync.outputs.packaging_merged }}" = "true" ]; then
-            NEED_BUILD=true
+          ARGS=()
+          if [ -n "${DSH_TAG_INPUT}" ]; then
+            ARGS+=(--tag "${DSH_TAG_INPUT}")
           fi
-          {
-            echo "rev=${REV}"
-            echo "version=${VER}"
-            echo "bump=${BUMP}"
-            echo "same_version=${SAME_VERSION}"
-            echo "need_build=${NEED_BUILD}"
-          } >> "$GITHUB_OUTPUT"
-          if [ "${BUMP}" = "true" ]; then
-            echo "dsh: ${CUR_REV:0:8} -> ${REV:0:8} (version: ${CUR_VER} -> ${VER})"
+          chmod +x scripts/update-dsh.sh
+          ./scripts/update-dsh.sh "${ARGS[@]}"
+
+      - name: Open draft PR (never push to main)
+        if: steps.siggate.outputs.required != 'true' && steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP_TAG: ${{ steps.bump.outputs.tag }}
+          BUMP_SHA: ${{ steps.bump.outputs.sha }}
+          BUMP_VER: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="${BUMP_TAG}"
+          SHA="${BUMP_SHA}"
+          VER="${BUMP_VER}"
+          BRANCH="automation/bump-dsh-${TAG}"
+          if [ "$BRANCH" = "main" ]; then
+            echo "refusing to push to main" >&2
+            exit 1
+          fi
+          if git rev-parse --verify --quiet "refs/heads/${BRANCH}"; then
+            git checkout "$BRANCH"
           else
-            echo "dsh already tracking ${REV:0:8} (${VER})"
+            git checkout -b "$BRANCH"
           fi
+          git add flake.nix flake.lock
+          git commit -m "chore(dsh): retarget input to ${TAG} (${SHA:0:12}, version ${VER})" || true
+          # Explicit refspec: only the updater branch moves. No --force.
+          git push origin "HEAD:refs/heads/${BRANCH}"
+          if gh pr list --head "$BRANCH" --json number --jq -e '.[0].number' >/dev/null; then
+            echo "PR already exists for ${BRANCH}; leaving it for human review"
+          else
+            gh pr create --draft --head "$BRANCH" --base main \
+              --title "chore(dsh): update to ${TAG}" \
+              --body "Automated tag update, verified by \`nix build\` + \`nix flake check\` before opening.
+          - tag: \`${TAG}\`
+          - commit: \`${SHA}\`
+          - source package version (apps/cli at tag): \`${VER}\`
+          - lock: immutable rev + narHash in flake.lock
 
-      - name: Apply latest-dsh overlay
-        if: steps.check.outputs.bump == 'true'
-        run: |
-          set -euo pipefail
-          sed -i "s|deepseek-harness/[0-9a-f]\{40\}|deepseek-harness/${{ steps.check.outputs.rev }}|" flake.nix
-          if [ "${{ steps.check.outputs.same_version }}" = "false" ]; then
-            sed -i "0,/version = \"[^\"]*\";/s//version = \"${{ steps.check.outputs.version }}\";/" pkgs/dsh.nix
+          If CI on this PR is red on the pnpm store hash, the package owner finishes \`version\` + \`hash\` in \`pkgs/dsh.nix\` (updater never edits owner files). Merge only after human review."
           fi
-
-      - name: Update flake lock
-        if: steps.check.outputs.need_build == 'true'
-        run: nix flake lock
-
-      - name: Build (pnpm hash bootstrap)
-        if: steps.check.outputs.need_build == 'true'
-        run: |
-          set -uo pipefail
-          case "$(uname -m)" in
-            x86_64)  SYSTEM="x86_64-linux" ;;
-            aarch64) SYSTEM="aarch64-linux" ;;
-            *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          PKG=".#packages.${SYSTEM}.dsh"
-          if ! nix build "${PKG}" 2> build.log; then
-            if ! grep -q "hash mismatch" build.log; then
-              cat build.log
-              exit 1
-            fi
-            NEWHASH=$(sed -n 's/.*got:    \(sha256-[A-Za-z0-9+/=]*\).*/\1/p' build.log | head -1)
-            if [ -z "${NEWHASH}" ]; then
-              cat build.log
-              exit 1
-            fi
-            sed -i "s|hash = \"[^\"]*\";|hash = \"${NEWHASH}\";|" pkgs/dsh.nix
-            if ! nix build "${PKG}" 2> build2.log; then
-              cat build2.log
-              exit 1
-            fi
-          fi
-
-      - name: Flake check
-        if: steps.check.outputs.need_build == 'true'
-        run: |
-          set -euo pipefail
-          case "$(uname -m)" in
-            x86_64)  SYSTEM="x86_64-linux" ;;
-            aarch64) SYSTEM="aarch64-linux" ;;
-            *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          nix flake check --system "${SYSTEM}"
-
-      - name: Commit overlay and push
-        if: steps.check.outputs.need_build == 'true'
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.check.outputs.bump }}" = "true" ]; then
-            if [ "${{ steps.check.outputs.same_version }}" = "true" ]; then
-              MSG="chore: sync dsh upstream to ${{ steps.check.outputs.rev }}"
-            else
-              MSG="chore: bump dsh to ${{ steps.check.outputs.version }} (${{ steps.check.outputs.rev }})"
-            fi
-            git add flake.nix flake.lock pkgs/dsh.nix
-            git commit -m "${MSG}"
-          fi
-          # pushes the merge commit (packaging) and/or the overlay commit
-          git push
