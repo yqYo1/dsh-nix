@@ -1,0 +1,3 @@
+- insert:
+    - id: test-file-patch-row
+      name: '@test/file-patch-row'

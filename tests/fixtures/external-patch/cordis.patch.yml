@@ -1,0 +1,3 @@
+- insert:
+    - id: test-external-selected-row
+      name: '@test/external-selected'

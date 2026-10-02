@@ -1,0 +1,5 @@
+# Machine-level patch layer fixture, generation 2 (changed content).
+# Linked by Home Manager to ~/.dsh/cordis.patch.yml.
+- id: machine-v2
+  config:
+    theme: light

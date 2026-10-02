@@ -19,8 +19,13 @@
   description = "Nix-native DSH profile packager";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # Regression tests use real Home Manager, not replicated option stubs.
+  inputs.home-manager = {
+    url = "github:nix-community/home-manager/d9d750e4fc11c10cab2da677bdd31e427f3a3a71";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
   inputs.dsh = {
-    url = "github:deepseek-ai/deepseek-harness/c389f96bf3a9b6807cb71ed6bdad5849be0df6d8";
+    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.0-rc.2";
     flake = false;
   };
 
@@ -28,6 +33,7 @@
     {
       self,
       nixpkgs,
+      home-manager,
       dsh,
     }:
     let
@@ -169,6 +175,54 @@
                 touch "$out"
               '';
 
+          boot-checker-wiring = import ./tests/boot-checker.nix { inherit pkgs; };
+
+          home-manager-integration = (import ./tests/hm-real.nix {
+            inherit pkgs;
+            hmPath = home-manager;
+          }).check;
+
+          profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;
+
+          profile-codex =
+            let
+              profile = import ./tests/fixtures/codex-profile.nix {
+                inherit profilesLib inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-codex-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
+                ${artifact}/package.json > /dev/null
+              test -f ${artifact}/node_modules/dsh-codex/package.json
+              jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live" and .[0].config.useNativeCompaction == true' \
+                ${artifact}/cordis.patch.yml > /dev/null
+              mkdir -p "$out"
+              printf 'CODEX-ARTIFACT-OK %s\n' ${artifact} > "$out/marker"
+            '';
+
+          profile-boot-tui =
+            pkgs.runCommand "dsh-profile-boot-tui-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+              export HOME="$TMPDIR/home"
+              home="$HOME/.dsh"
+              mkdir -p "$home/profiles"
+              cp -a ${self.packages.${system}.tui} "$home/profiles/tui"
+              chmod -R u+w "$home/profiles/tui"
+              if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                ${./scripts/check-profile.mjs} \
+                ${self.packages.${system}.dsh} tui "$home" \
+                > "$TMPDIR/check.log" 2>&1; then
+                cat "$TMPDIR/check.log" >&2
+                exit 1
+              fi
+              grep -q '^CHECK-OK$' "$TMPDIR/check.log"
+              printf 'activated\ndisposed\n' > "$TMPDIR/expected-lifecycle"
+              cmp "$TMPDIR/expected-lifecycle" "$home/tui-fixture-lifecycle.log"
+              mkdir -p "$out"
+              cp "$home/tui-fixture-lifecycle.log" "$out/lifecycle"
+            '';
+
           home-module =
             pkgs.runCommand "dsh-home-module-check"
               {
@@ -200,6 +254,7 @@
                 cp -a ${self.packages.${system}.web} "$home/profiles/web"
                 chmod -R u+w "$home/profiles/web"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \
                   ${self.packages.${system}.dsh} web "$home" --port 0 \
                   > "$TMPDIR/check.log" 2>&1; then
@@ -220,9 +275,16 @@
                 mkdir -p "$home/profiles"
                 cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
                 chmod -R u+w "$home/profiles/headless"
+                # rc.2 starts the one-shot runner during apply, without
+                # appReady. This boot-only fixture disables that row and
+                # parses help instead of starting a model/application task.
+                # It covers base + headless startup, NOT runner execution.
+                printf '%s\n' '[{"id":"headless-runner","disabled":true}]' \
+                  > "$home/profiles/headless/cordis.patch.yml"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \
-                  ${self.packages.${system}.dsh} headless "$home" "check" \
+                  ${self.packages.${system}.dsh} headless "$home" --help \
                   > "$TMPDIR/check.log" 2>&1; then
                   cat "$TMPDIR/check.log" >&2
                   exit 1
@@ -251,6 +313,7 @@
                   "$home/profiles/web-nobase/package.json" > "$TMPDIR/package.json"
                 mv "$TMPDIR/package.json" "$home/profiles/web-nobase/package.json"
                 if ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \
                   ${self.packages.${system}.dsh} web-nobase "$home" --port 0 \
                   > "$TMPDIR/check.log" 2>&1; then
@@ -272,8 +335,8 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              nodejs_22
-              pnpm
+              nodejs
+              pnpm_11
               yq-go
             ];
           };

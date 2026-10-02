@@ -1,0 +1,3 @@
+- insert:
+    - id: test-local-bundle-row
+      name: '@test/local-bundle/plugin'
