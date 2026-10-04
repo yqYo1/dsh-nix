@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Real Home Manager host E2E: pinned-HM activation + real profile install + dsh boot.
+# Real Home Manager host E2E: tests-flake-pinned HM activation + real profile install + dsh boot.
 #
 # What this proves (once the dsh package hash is real):
-#   1. The flake.lock-pinned Home Manager evaluates programs.dsh into a real
-#      homeManagerConfiguration (DAG activation, real file linking) via
-#      tests/hm-host.nix -- no <nixpkgs>, no stub options, no shims.
+#   1. The tests-flake-lock-pinned Home Manager (tests/flake.lock) evaluates
+#      programs.dsh into a real homeManagerConfiguration (DAG activation,
+#      real file linking) via tests/hm-host.nix -- no <nixpkgs>, no stub
+#      options, no shims. The root flake stays Home Manager-independent.
 #   2. The generation's ./activate runs with driver 0 (default flags: NO
 #      --driver-version, NO SKIP_SANITY_CHECKS, NO DRY_RUN). Pinned HM then
 #      owns the install itself: `nix-env --profile
@@ -43,8 +44,10 @@
 #     before/after and must be byte-identical, else FAIL -- including on
 #     failure paths after activation is attempted (see cleanup).
 #
-# Run via the Nix devShell, never host runtimes directly:
-#   nix develop --no-write-lock-file -c bash scripts/hm-e2e.sh
+# Run via the tests devShell, never host runtimes directly:
+#   nix develop ./tests --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh
+# (tests/flake.nix references the parent via a relative path input, so this
+# requires Nix >= 2.26.)
 # Optional: DSH_HM_E2E_TIMEOUT_SECONDS (boot wait, default 30),
 #   DSH_HM_E2E_ARTIFACT_DIR (success evidence copy, default
 #   $scratch/dsh-hm-host-e2e-latest).
@@ -52,6 +55,11 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
+nix_version=$(nix --version | awk '{ print $3 }')
+if [ "$(printf '%s\n%s\n' '2.26' "$nix_version" | sort -V | head -1)" != '2.26' ]; then
+  echo "hm host e2e: Nix >= 2.26 required for relative test-flake inputs (got $nix_version)" >&2
+  exit 2
+fi
 timeout_seconds=${DSH_HM_E2E_TIMEOUT_SECONDS:-30}
 scratch=${TMPDIR:-/home/yayoi/.hermes/cache/scratch}
 outer_home=${HOME:-/home/yayoi}
@@ -208,22 +216,26 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # --- pinned sources + eval gate (no build: package hash may be placeholder)
-system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
-base="let fl = builtins.getFlake \"$repo_root\"; in import ./tests/hm-host.nix { pkgsPath = fl.inputs.nixpkgs.outPath; hmPath = fl.inputs.home-manager.outPath; dshSrc = fl.inputs.dsh; system = \"$system\"; username = \"$outer_user\"; homeDirectory = \"$HOME\"; }"
-hm_rev=$(jq -r '.nodes."home-manager".locked.rev' flake.lock 2>/dev/null ||
-  node -e 'console.log(require("./flake.lock").nodes["home-manager"].locked.rev)' 2>/dev/null || echo unknown)
-nixpkgs_rev=$(jq -r '.nodes."nixpkgs".locked.rev' flake.lock 2>/dev/null ||
-  node -e 'console.log(require("./flake.lock").nodes.nixpkgs.locked.rev)' 2>/dev/null || echo unknown)
+# All pins resolve through the tests subflake, so the root flake stays Home
+# Manager-independent. Reject lock updates and never write the lock during
+# verification. Address the whole Git repository with dir=tests, so the
+# path:../. parent stays inside the source root (not a tests-only source tree).
+system=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr 'builtins.currentSystem')
+base="let fl = builtins.getFlake \"git+file://$repo_root?dir=tests\"; in import ./tests/hm-host.nix { pkgsPath = fl.inputs.nixpkgs.outPath; hmPath = fl.inputs.home-manager.outPath; dshSrc = fl.inputs.dsh-nix.inputs.dsh; system = \"$system\"; username = \"$outer_user\"; homeDirectory = \"$HOME\"; }"
+hm_rev=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = (builtins.getFlake \"git+file://$repo_root?dir=tests\").inputs.home-manager; in h.rev or h.sourceInfo.rev or (throw \"home-manager rev unavailable\")") ||
+  fail "could not resolve pinned home-manager rev from the tests flake"
+nixpkgs_rev=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let n = (builtins.getFlake \"git+file://$repo_root?dir=tests\").inputs.nixpkgs; in n.rev or n.sourceInfo.rev or (throw \"nixpkgs rev unavailable\")") ||
+  fail "could not resolve pinned nixpkgs rev from the tests flake"
 echo "hm host e2e: pinned home-manager $hm_rev / nixpkgs $nixpkgs_rev (system $system)"
 echo "hm host e2e: eval gate (drvPath only, no build)..."
-drv=$(nix eval --impure --raw --expr \
+drv=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr \
   "let h = $base; in assert h.checks.packageExact; assert h.checks.dagOrdered; assert h.checks.layoutOk; h.activationDrvPath") ||
   fail "eval gate failed (packageExact/dagOrdered/layoutOk); fixture or module regressed"
-expected_artifact=$(nix eval --impure --raw --expr "let h = $base; in h.expectedAgentArtifact") ||
+expected_artifact=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.expectedAgentArtifact") ||
   fail "could not evaluate expected agent artifact path"
-pkg_out=$(nix eval --impure --raw --expr "let h = $base; in h.packageOutPath") ||
+pkg_out=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.packageOutPath") ||
   fail "could not evaluate packaged dsh outPath"
-pkg_drv=$(nix eval --impure --raw --expr "let h = $base; in h.packageDrvPath") ||
+pkg_drv=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.packageDrvPath") ||
   fail "could not evaluate packaged dsh drvPath"
 echo "hm host e2e: eval gate passed; activation drv $drv; package $pkg_out; package drv $pkg_drv"
 
@@ -243,7 +255,7 @@ echo "hm host e2e: daemon gate: live daemon reachable ($ping_json)"
 # Persistent GC root: build directly with a REAL Nix --out-link at
 # $artifact_dir/generation (not a cp -P symlink copy, which registers nothing).
 mkdir -p "$artifact_dir"
-nix build --impure --out-link "$artifact_dir/generation" --expr "let h = $base; in h.generation" \
+nix build --impure --no-update-lock-file --no-write-lock-file --out-link "$artifact_dir/generation" --expr "let h = $base; in h.generation" \
   -L 2>"$tmp/nix-build.log" ||
   fail "nix build of activationPackage failed (see $tmp/nix-build.log)"
 generation=$(readlink -f "$artifact_dir/generation") ||

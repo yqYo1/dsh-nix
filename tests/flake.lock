@@ -17,6 +17,43 @@
         "type": "github"
       }
     },
+    "dsh-nix": {
+      "inputs": {
+        "dsh": "dsh",
+        "nixpkgs": "nixpkgs",
+        "systems": "systems"
+      },
+      "locked": {
+        "path": "../.",
+        "type": "path"
+      },
+      "original": {
+        "path": "../.",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "home-manager": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1788355065,
+        "narHash": "sha256-gAz5oTI7ur34CfuakQduiQd/2ZhO62Bn2XXg08nZYYQ=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "d9d750e4fc11c10cab2da677bdd31e427f3a3a71",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "d9d750e4fc11c10cab2da677bdd31e427f3a3a71",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1791048980,
@@ -35,9 +72,12 @@
     },
     "root": {
       "inputs": {
-        "dsh": "dsh",
-        "nixpkgs": "nixpkgs",
-        "systems": "systems"
+        "dsh-nix": "dsh-nix",
+        "home-manager": "home-manager",
+        "nixpkgs": [
+          "dsh-nix",
+          "nixpkgs"
+        ]
       }
     },
     "systems": {

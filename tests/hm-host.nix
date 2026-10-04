@@ -1,15 +1,18 @@
-# Host E2E fixture: REAL flake.lock-pinned Home Manager activation of the
+# Host E2E fixture: TESTS-flake-pinned real Home Manager activation of the
 # REAL packaged dsh, with zero Nix-CLI shims and zero faked success.
 #
 # Evaluated by scripts/hm-e2e.sh with the real Nix CLI. The caller passes
-# the pinned input sources straight from the lock (no <nixpkgs>, no stub
-# options, no hmPath default):
+# the pinned input sources from the tests subflake (builtins.getFlake
+# "git+file://$repo_root?dir=tests"), so the whole repository is the source
+# root and the public flake stays Home Manager-independent:
 #   import ./tests/hm-host.nix {
-#     pkgsPath = <flake.inputs.nixpkgs.outPath>;
-#     hmPath   = <flake.inputs.home-manager.outPath>;
-#     dshSrc   = <flake.inputs.dsh>;   # whole input: carries .rev
+#     pkgsPath = <tests-flake inputs.nixpkgs.outPath>;  # follows dsh-nix/nixpkgs
+#     hmPath   = <tests-flake inputs.home-manager.outPath>;
+#     dshSrc   = <tests-flake inputs.dsh-nix.inputs.dsh>;  # whole input: carries .rev
 #     system username homeDirectory
 #   }
+# (This fixture file itself is still imported relative to the repo checkout,
+# exactly as before.)
 #
 # Gate mode is evaluation-only: the script asserts `checks` and reads
 # `activationDrvPath` / `expectedAgentArtifact` as store-path STRINGS

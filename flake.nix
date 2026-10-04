@@ -29,11 +29,6 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.systems.url = "github:nix-systems/default";
-  # Regression tests use real Home Manager, not replicated option stubs.
-  inputs.home-manager = {
-    url = "github:nix-community/home-manager/d9d750e4fc11c10cab2da677bdd31e427f3a3a71";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
   inputs.dsh = {
     url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.0-rc.2";
     flake = false;
@@ -44,7 +39,6 @@
       self,
       nixpkgs,
       systems,
-      home-manager,
       dsh,
     }:
     let
@@ -186,11 +180,6 @@
               '';
 
           boot-checker-wiring = import ./tests/boot-checker.nix { inherit pkgs; };
-
-          home-manager-integration = (import ./tests/hm-real.nix {
-            inherit pkgs;
-            hmPath = home-manager;
-          }).check;
 
           profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;
 
