@@ -94,11 +94,17 @@ dsh --profile web          # http://127.0.0.1:3080
 
 ### Standalone
 
-```nix
-nix build .#packages.x86_64-linux.dsh        # the CLI
-nix build .#packages.x86_64-linux.tui-spec   # example: spec-resolved profile
-nix eval .#profiles.tui-spec --json          # the declaration
+```sh
+# The first invocation accepts this flake's public Cachix substituter.
+nix build --accept-flake-config .#dsh         # the CLI (current system)
+nix build .#tui-spec                           # example: spec-resolved profile
+nix eval .#profiles.tui-spec --json            # the declaration
 ```
+
+Builds use the public `yqyo1.cachix.org` binary cache when the flake
+configuration is accepted. The cache's public signing key is pinned in
+`flake.nix`; no token is needed to download artifacts. GitHub Actions uses the
+same cache and may push with the repository `CACHIX_AUTH_TOKEN` secret.
 
 The package also ships `dsh-acp-demo`, the ACP automation server app
 (JSON-RPC over stdio; supply a leaf `cordis.yml` via `--config`, e.g. the
