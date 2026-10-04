@@ -64,8 +64,50 @@ let
   artifacts = lib.mapAttrs (name: declaration:
     profilesLib.buildProfileBundle { inherit pkgs; profile = declaration; }) declarations;
 
-  profileDir = name: "$HOME/.dsh/profiles/" + lib.escapeShellArg name;
-  stampFile = name: "${profileDir name}/.dsh-nix-stamp";
+  # Profile names become a single pathname component under
+  # ~/.dsh/profiles.  Validation mirrors upstream dsh (profile.ts): only
+  # empty, slash, backslash, ".", "..", and "node_modules" are rejected
+  # there; we additionally reject ASCII control characters (including
+  # newline) because the managed-profile manifest below is
+  # newline-separated and could not round-trip them.  Everything else --
+  # spaces, Unicode, quotes, glob characters -- is allowed, so the
+  # activation script must interpolate names with lib.escapeShellArg as a
+  # SEPARATE shell word: "$HOME/.dsh/profiles"/'my profile'.
+  # NOTE: "$HOME/..." must NOT be combined with lib.escapeShellArg in a
+  # single double-quoted string: that helper emits single-quoted literals
+  # ('web'), which are literal quote characters once wrapped in double
+  # quotes ("$HOME/.../'web'").
+  invalidNameReason = name:
+    if name == "" then "must not be empty"
+    else if name == "." || name == ".." then "must not be ${builtins.toJSON name}"
+    else if name == "node_modules" then "is reserved"
+    else if builtins.match ".*[\\/].*" name != null then "must not contain '/' or '\\'"
+    else if builtins.match ".*[[:cntrl:]].*" name != null then "must not contain control characters"
+    else null;
+  checkedArtifacts = lib.mapAttrs (name: artifact:
+    let reason = invalidNameReason name;
+    in if reason == null then artifact
+    else throw "programs.dsh: profile name ${builtins.toJSON name} ${reason}") artifacts;
+
+  # Separate shell words: double-quoted $HOME prefix, single-quoted name.
+  profileDir = name: "\"$HOME/.dsh/profiles\"/" + lib.escapeShellArg name;
+  stampFile = name: "\"$HOME/.dsh/profiles\"/" + lib.escapeShellArg name + "/\".dsh-nix-stamp\"";
+  managedFile = "$HOME/.dsh/.dsh-nix-managed-profiles";
+
+  # Refuse symlinked roots BEFORE any profile write: the per-profile
+  # rm -rf/mkdir/cp below must never run through a user-supplied symlink.
+  # Checked again in activateCleanup below (defence in depth); this early
+  # guard is what makes the refusal effective.
+  activateRootGuard = ''
+    if [ -L "$HOME/.dsh" ]; then
+      echo "programs.dsh: refusing to manage $HOME/.dsh: symlinked root" >&2
+      exit 1
+    fi
+    if [ -L "$HOME/.dsh/profiles" ]; then
+      echo "programs.dsh: refusing to manage $HOME/.dsh/profiles: symlinked root" >&2
+      exit 1
+    fi
+  '';
 
   activateProfile = name: artifact:
     let
@@ -74,28 +116,77 @@ let
       artifactString = toString artifact;
     in
     ''
-      if [ -f "${stamp}" ] && [ "$(cat "${stamp}")" = ${lib.escapeShellArg artifactString} ]; then
+      if [ -f ${stamp} ] && [ "$(cat ${stamp})" = ${lib.escapeShellArg artifactString} ]; then
         :
+      elif [[ -v DRY_RUN ]]; then
+        echo "dshProfiles: would materialise profile ${lib.escapeShellArg name} from ${lib.escapeShellArg artifactString}"
       else
-        rm -rf "${dir}"
-        mkdir -p "${dir}"
-        cp -a ${lib.escapeShellArg artifactString}/. "${dir}/"
+        rm -rf ${dir}
+        mkdir -p ${dir}
+        cp -a ${lib.escapeShellArg artifactString}/. ${dir}/
         # cp -a syncs the destination directory attributes (read-only store
         # modes) too; dsh rewrites the profile root cordis.yml on every boot.
-        chmod -R u+w "${dir}"
-        printf '%s' ${lib.escapeShellArg artifactString} > "${stamp}"
+        chmod -R u+w ${dir}
+        printf '%s' ${lib.escapeShellArg artifactString} > ${stamp}
       fi
     '';
 
   activateSettings = lib.optionalString (cfg.settings != { }) ''
     if [ ! -f "$HOME/.dsh/settings.yaml" ]; then
+      if [[ -v DRY_RUN ]]; then
+        echo "dshProfiles: would seed $HOME/.dsh/settings.yaml"
+      else
       mkdir -p "$HOME/.dsh"
       umask 077
       cat > "$HOME/.dsh/settings.yaml" <<'DSH_NIX_SETTINGS'
     ${builtins.toJSON cfg.settings}
     DSH_NIX_SETTINGS
+      fi
     fi
   '';
+
+  currentNames = lib.attrNames checkedArtifacts;
+
+  # Remove profile directories this module previously managed but which are
+  # no longer declared.  Only names recorded in our own manifest are ever
+  # removed, and only as a single path component under
+  # ~/.dsh/profiles (belt and braces alongside the eval-time name check),
+  # so user-owned profiles are never touched.
+  activateCleanup = ''
+    # Never follow a user-supplied symlink: rm -rf through a symlinked
+    # root would delete the link target's contents.
+    if [ -L "$HOME/.dsh/profiles" ]; then
+      echo "programs.dsh: refusing to manage $HOME/.dsh/profiles: symlinked root" >&2
+      exit 1
+    fi
+    if [[ -v DRY_RUN ]]; then
+      echo "dshProfiles: dry run, skipping profile cleanup and manifest update"
+    else
+    mkdir -p "$HOME/.dsh/profiles"
+    if [ -f "${managedFile}" ]; then
+      while IFS= read -r old; do
+        case "$old" in
+          ${lib.concatStringsSep "|" (map lib.escapeShellArg (currentNames ++ [ "" ]))}) : ;; # still declared (or empty line)
+          "." | ".." | "node_modules" | "" | *[/\\]*) : ;; # never delete unsafe, reserved, or empty entries
+          *) if printf '%s' "$old" | grep -q '[[:cntrl:]]'; then :; else rm -rf "$HOME/.dsh/profiles/$old"; fi ;;
+        esac
+      done < "${managedFile}"
+    fi
+    # Rewrite the manifest only when it changed, so repeat activations are
+    # byte-identical no-ops (command substitution strips trailing newlines
+    # on both sides, keeping the comparison exact).
+    new_managed=$(printf '%s\n' ${lib.escapeShellArgs currentNames})
+    if [ ! -f "${managedFile}" ] || [ "$(cat "${managedFile}")" != "$new_managed" ]; then
+      printf '%s\n' ${lib.escapeShellArgs currentNames} > "${managedFile}"
+    fi
+    fi
+  '';
+
+  activationScript =
+    activateRootGuard
+    + "\n" + lib.concatStringsSep "\n" (lib.mapAttrsToList activateProfile checkedArtifacts)
+    + "\n" + activateCleanup
+    + "\n" + activateSettings;
 in
 {
   options.programs.dsh = {
@@ -128,14 +219,23 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # The dsh CLI installs EXACTLY as given: no wrapping, no symlink
+    # rewriting.  Plugin composition lives in the ~/.dsh profile
+    # directories below, never in the package.
     home.packages = [ cfg.package ];
 
     home.file = lib.mkIf (cfg.homePatchesFile != null) {
       ".dsh/cordis.patch.yml".source = cfg.homePatchesFile;
     };
 
+    # The block writes files, so under real Home Manager it must run after
+    # the writeBoundary DAG node (activation contract: side-effecting blocks
+    # after writeBoundary; bare strings sort anywhere).  Plain nixpkgs lib
+    # (stub evaluations) has no lib.hm.dag, so fall back to the bare string.
     home.activation.dshProfiles =
-      lib.concatStringsSep "\n" (lib.mapAttrsToList activateProfile artifacts)
-      + "\n" + activateSettings;
+      if lib ? hm && lib.hm ? dag && lib.hm.dag ? entryAfter then
+        lib.hm.dag.entryAfter [ "writeBoundary" ] activationScript
+      else
+        activationScript;
   };
 }

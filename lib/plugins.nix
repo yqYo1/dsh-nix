@@ -10,9 +10,12 @@ let
     }:
     let
       packagePath = if builtins.isPath path then builtins.path { inherit path; } else path;
-      # Only local directories are inspectable at evaluation time.  A
-      # derivation provides its package.json when built, so treat it as a
-      # plain dependency unless the caller declares the patch explicitly.
+      # Only local directories are inspectable at evaluation time.  A raw
+      # derivation (or any non-path package) defers package.json name/patch
+      # resolution to build time, where buildProfileBundle reads package.json
+      # with jq (no IFD).  An explicit patchPath forces layer membership at
+      # build time; otherwise the manifest's dsh.bundle.patch declaration
+      # decides (plain deps stay inactive).
       inspectable = builtins.isPath path;
       manifest =
         if inspectable then
@@ -26,19 +29,35 @@ let
         else
           null;
       resolvedPackageName = if packageName != null then packageName else manifest.name or null;
+      # Raw Nix packages (derivations) are not inspectable at evaluation time:
+      # reading their package.json would be IFD.  Defer the missing-name
+      # error to buildProfileBundle, which reads package.json at build time.
       checkedPackageName =
         if resolvedPackageName == null || resolvedPackageName == "" then
-          throw "dsh plugin bundle: packageName is required (set it explicitly or provide package.json name)"
+          if manifest == null then null
+          else
+            throw "dsh plugin bundle: packageName is required (set it explicitly or provide package.json name)"
         else
           resolvedPackageName;
       declaredPatch =
         if manifest == null then null else (((manifest.dsh or { }).bundle or { }).patch or null);
-      resolvedPatchPath = if patchPath != null then patchPath else declaredPatch;
+      # Carry Nix path context for explicit patch files: a path-typed
+      # patchPath (e.g. ./cordis.patch.yml) must materialise into the store
+      # so the build sandbox can see it; relative strings stay verbatim as
+      # package-relative manifest values.
+      explicitPatch =
+        if patchPath == null then null
+        else if builtins.isPath patchPath then builtins.path { path = patchPath; }
+        else patchPath;
+      resolvedPatchPath = if explicitPatch != null then explicitPatch else declaredPatch;
     in
     {
       packageName = checkedPackageName;
       inherit packagePath;
       patchPath = resolvedPatchPath;
+      # Raw explicit selection (null when the caller did not pass patchPath):
+      # projection triggers only on this, never on a manifest-declared patch.
+      inherit explicitPatch;
       isLayer = resolvedPatchPath != null;
     };
 
@@ -105,11 +124,15 @@ let
       # and Nix reports the actual recursive hash at build time.
       outputHash = if hash == "" then lib.fakeHash else hash;
       nativeBuildInputs = [
+        pkgs.cacert
         pkgs.nodejs
         pkgs.pnpm
       ];
       impureEnvVars = pkgs.lib.fetchers.proxyImpureEnvVars ++ [ "NIX_NPM_REGISTRY" ];
       buildCommand = ''
+        # The fixed-output sandbox does not inherit the caller's CA file.
+        # Use the Nix CA bundle; retain certificate verification for pnpm.
+        export NODE_EXTRA_CA_CERTS="$NIX_SSL_CERT_FILE"
         export HOME=/build/home
         mkdir -p "$HOME"
         pnpm config set store-dir /build/pnpm-store

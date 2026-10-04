@@ -5,10 +5,13 @@
 # - `pnpmConfigHook` points the offline install at that store.
 # - The HMR service requires Node internals access, so the wrapper launches
 #   node with `--expose-internals` (dsh itself never sets this flag).
+# - `dsh plugin` forwards to pnpm on PATH (default command `pnpm`), so the
+#   wrapper prefixes a private pnpm_11 (matching upstream packageManager
+#   pnpm@11) plus nodejs for child execution. HM `cfg.package` is untouched.
 { lib
 , stdenv
 , nodejs
-, pnpm
+, pnpm_11
 , pnpmConfigHook
 , fetchPnpmDeps
 , makeBinaryWrapper
@@ -18,7 +21,7 @@
 }:
 
 let
-  version = "0.1.3-alpha.2";
+  version = "0.2.0-rc.2";
   # rc.8+ embeds the source commit into client artifacts by shelling out to
   # `git rev-parse HEAD`.  The nix build is a gitless tarball with no `git`
   # in the environment, so we feed the pinned rev instead — the dsh build
@@ -30,14 +33,14 @@ let
     pname = "deepseek-harness";
     inherit version src;
     fetcherVersion = 4;
-    hash = "sha256-t3wLZiWx9Q/QYRcQ7zB8lepRXXH5t4mE5nEoLHfOJO4=";
+    hash = "sha256-+7jFaROKpN8XHFpulloK2lb0GsYXbEdMs/V7ZO9leKE=";
   };
 in
 stdenv.mkDerivation {
   pname = "dsh";
   inherit version src;
 
-  nativeBuildInputs = [ nodejs pnpm pnpmConfigHook makeBinaryWrapper python3 node-gyp ];
+  nativeBuildInputs = [ nodejs pnpm_11 pnpmConfigHook makeBinaryWrapper python3 node-gyp ];
   inherit pnpmDeps;
   env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
 
@@ -51,19 +54,6 @@ stdenv.mkDerivation {
     # build/Release.
     (
       cd node_modules/.pnpm/node-pty@*/node_modules/node-pty
-      export HOME="$TMPDIR"
-      export npm_config_nodedir=${nodejs}
-      export npm_config_python=python3
-      node-gyp rebuild
-    )
-    # fs-ext compiles its C++ binding (build/Release/fs_ext.node) in its own
-    # install script via node-gyp. That script downloads node headers from
-    # nodejs.org, which the build sandbox does not allow, so build the
-    # binding explicitly from the pinned nodejs headers, the same way as
-    # node-pty above. The headless profile loads fs-ext at boot for its
-    # session write lock.
-    (
-      cd node_modules/.pnpm/fs-ext@*/node_modules/fs-ext
       export HOME="$TMPDIR"
       export npm_config_nodedir=${nodejs}
       export npm_config_python=python3
@@ -84,15 +74,15 @@ stdenv.mkDerivation {
       "$out/node_modules/.pnpm/node_modules/@deepseek-ai/website" \
       "$out/node_modules/.cache"
     mkdir -p "$out/bin"
+    # rc.2 Node builtin compat: ship the narrowly-triggered
+    # `--expose-internals` fallback preload next to the CLI and load it
+    # before the entrypoint. Paths derive from $out at build time.
+    install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
     makeBinaryWrapper "${nodejs}/bin/node" "$out/bin/dsh" \
       --add-flags "--expose-internals" \
+      --add-flags "--require $out/lib/dsh-builtin-compat.cjs" \
       --add-flags "$out/apps/cli/lib/bin.js" \
-      --append-flags ""
-    # ACP automation server app: JSON-RPC stdio bin over the agent spine.
-    # Same HMR internals requirement as the CLI.
-    makeBinaryWrapper "${nodejs}/bin/node" "$out/bin/dsh-acp-demo" \
-      --add-flags "--expose-internals" \
-      --add-flags "$out/packages/examples/acp-demo/lib/bin.js" \
+      --prefix PATH : "${lib.makeBinPath [ pnpm_11 nodejs ]}" \
       --append-flags ""
     runHook postInstall
   '';

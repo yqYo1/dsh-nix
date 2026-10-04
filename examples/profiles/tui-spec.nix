@@ -5,5 +5,5 @@ profilesLib.mkProfileBundle {
   plugins = [
     ("file:" + toString ./../plugins/tui-core)
   ];
-  specsHash = "sha256-HzwnswH6AVnUtJdC7scM+xUHi+5ipDukK2nJDj6zx3E=";
+  specsHash = "sha256-vzxN0nryp9XzH6jhaMIa1FjboUkEHsGoHi0w8tB4Zj8=";
 }

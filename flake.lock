@@ -3,17 +3,38 @@
     "dsh": {
       "flake": false,
       "locked": {
-        "lastModified": 1788799579,
-        "narHash": "sha256-QXEq9OMFLpJBTjTBUYw614Mmz7coB/QbToi0XyYiWJs=",
+        "lastModified": 1790673691,
+        "narHash": "sha256-ZtO+bdoYbIkIgLTge5Eh7KYwTVh8FpFAAvx58dSY1PI=",
         "owner": "deepseek-ai",
         "repo": "deepseek-harness",
-        "rev": "c389f96bf3a9b6807cb71ed6bdad5849be0df6d8",
+        "rev": "639ed015397290b3745d163aafe02ffee4aa3f84",
         "type": "github"
       },
       "original": {
         "owner": "deepseek-ai",
+        "ref": "dsh-v0.2.0-rc.2",
         "repo": "deepseek-harness",
-        "rev": "c389f96bf3a9b6807cb71ed6bdad5849be0df6d8",
+        "type": "github"
+      }
+    },
+    "home-manager": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1788355065,
+        "narHash": "sha256-gAz5oTI7ur34CfuakQduiQd/2ZhO62Bn2XXg08nZYYQ=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "d9d750e4fc11c10cab2da677bdd31e427f3a3a71",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "d9d750e4fc11c10cab2da677bdd31e427f3a3a71",
         "type": "github"
       }
     },
@@ -36,6 +57,7 @@
     "root": {
       "inputs": {
         "dsh": "dsh",
+        "home-manager": "home-manager",
         "nixpkgs": "nixpkgs"
       }
     }
