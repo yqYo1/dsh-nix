@@ -27,6 +27,13 @@
 # path plugin: no pnpm specs, no in-box bundles, no network) whose apply()
 # appends `activated` and whose dispose appends `disposed` to
 # $DSH_HOME/tui-fixture-lifecycle.log.
+#
+# A second `codex` profile comes from the shared locked fixture
+# tests/fixtures/codex-profile.nix (in-box base + web-app, dsh-codex@0.3.2,
+# llm-openai-codex user layer, committed pnpm lock + real FOD hash): the
+# fixture bundle is the single source for both the expected artifact and
+# the module declaration below (translated back, lock intact), so no
+# hash/config is duplicated here.
 { pkgsPath
 , hmPath
 , dshSrc
@@ -48,6 +55,23 @@ let
   ];
   dshModule = import ../modules/home-manager/dsh.nix {
     inherit pluginsLib profilesLib inBoxNames dshSrc;
+  };
+
+  # Lock-bearing Codex bundle: THE single source (fixture API respected:
+  # profilesLib/inBoxNames only; no hash, lock, or layer config here).
+  codexBundle = import ./fixtures/codex-profile.nix { inherit profilesLib inBoxNames; };
+  # Translate the bundle struct back to a module declaration: classified
+  # plugins return to their original entries (in-box name / spec string /
+  # nix package), while specsLock/specsHash/userPatches pass through
+  # untouched so the lock can never silently fall back to live resolve.
+  codexDecl = {
+    plugins = map
+      (entry:
+        if entry.kind == "in-box" then entry.name
+        else if entry.kind == "spec" then entry.spec
+        else entry.plugin)
+      codexBundle.plugins;
+    inherit (codexBundle) userPatchesFile userPatches specsHash specsLock;
   };
 
   # Fixture profile declaration, shared verbatim with the user module below
@@ -74,7 +98,10 @@ let
       package = pkgs.callPackage ../pkgs/dsh.nix { src = dshSrc; };
       homePatchesFile = null;
       settings = { };
-      profiles.agent = agentDecl;
+      profiles = {
+        agent = agentDecl;
+        codex = codexDecl;
+      };
     };
   };
 
@@ -97,6 +124,14 @@ let
       inherit inBoxNames;
     } // agentDecl);
   });
+  # Expected immutable Codex artifact, built straight from the fixture
+  # bundle (store-path string only, same as above). The host script asserts
+  # the activated stamp lands exactly here, proving the module translated
+  # the shared declaration faithfully with the lock intact.
+  expectedCodexArtifact = toString (profilesLib.buildProfileBundle {
+    inherit pkgs;
+    profile = codexBundle;
+  });
 in
 {
   generation = config.home.activationPackage;
@@ -106,6 +141,12 @@ in
   # asserts `readlink -f $HOME/.nix-profile/bin/dsh` lands exactly here.
   packageOutPath = config.programs.dsh.package.outPath;
   packageDrvPath = config.programs.dsh.package.drvPath;
+  # Project-pinned node (tests-flake nixpkgs, the same pkgs the profiles
+  # build with): the script realises this derivation and runs every codex
+  # runtime probe (transitive pi-ai import, rejecting-guard boot) with its
+  # bin/node, never an ambient runtime.
+  nodePackage = pkgs.nodejs;
+  nodeOutPath = pkgs.nodejs.outPath;
   checks = {
     # The CLI installs EXACTLY unmodified: derivation identity inside
     # home.packages (HM adds its own entries alongside, so membership, not
@@ -117,6 +158,10 @@ in
       builtins.isAttrs activationValue
       && activationValue.after == [ "writeBoundary" ];
     layoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/agent" activationScript;
+    codexLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/codex" activationScript;
+    # The translated declaration keeps the fixture lock AND the pinned real
+    # FOD hash (never blank/discovery, never dropped to live resolve).
+    codexLocked = codexDecl.specsLock != null && codexDecl.specsHash != "" && codexDecl.specsHash == codexBundle.specsHash;
   };
-  inherit expectedAgentArtifact;
+  inherit expectedAgentArtifact expectedCodexArtifact;
 }

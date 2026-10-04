@@ -17,6 +17,17 @@
 #   3. The profile-installed dsh boots the fixture `agent` profile
 #      (examples/plugins/tui-core, path-only, no network): the marker shows
 #      `activated`, then SIGTERM yields clean exit 0 and `disposed`.
+#   4. The lock-bearing `codex` profile (shared fixture
+#      tests/fixtures/codex-profile.nix: in-box base + web-app,
+#      dsh-codex@0.3.2, llm-openai-codex layer, committed pnpm lock) lands
+#      with stamp == fixture-built artifact, direct-only manifest/layers,
+#      spec link into the live FOD (direct-specs order, lock bytes, .pnpm
+#      graph) and a runnable bin; the project-pinned node then proves the
+#      real transitive pi-ai import and the packaged check-profile.mjs
+#      boots the activated codex CHECK-OK under the rejecting no-network
+#      guard (fresh HOME/XDG, --port 0 --no-open so no real browser ever
+#      opens), with no network/import failure. Persisted evidence is
+#      token-redacted (CHECK-OK and diagnostics survive).
 #
 # Confinement contract (primary source: home-manager's
 # modules/lib-bash/activation-init.sh `setupVars`/`migrateProfile`):
@@ -229,15 +240,26 @@ nixpkgs_rev=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file
 echo "hm host e2e: pinned home-manager $hm_rev / nixpkgs $nixpkgs_rev (system $system)"
 echo "hm host e2e: eval gate (drvPath only, no build)..."
 drv=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr \
-  "let h = $base; in assert h.checks.packageExact; assert h.checks.dagOrdered; assert h.checks.layoutOk; h.activationDrvPath") ||
-  fail "eval gate failed (packageExact/dagOrdered/layoutOk); fixture or module regressed"
+  "let h = $base; in assert h.checks.packageExact; assert h.checks.dagOrdered; assert h.checks.layoutOk; assert h.checks.codexLayoutOk; assert h.checks.codexLocked; h.activationDrvPath") ||
+  fail "eval gate failed (packageExact/dagOrdered/layoutOk/codexLayoutOk/codexLocked); fixture or module regressed"
 expected_artifact=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.expectedAgentArtifact") ||
   fail "could not evaluate expected agent artifact path"
+expected_codex=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.expectedCodexArtifact") ||
+  fail "could not evaluate expected codex artifact path"
+node_out=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.nodeOutPath") ||
+  fail "could not evaluate project-pinned node outPath"
+codex_lock="$repo_root/tests/fixtures/codex-pnpm-lock.yaml"
+net_guard="$repo_root/tests/fixtures/no-net-guard.cjs"
+checker="$repo_root/scripts/check-profile.mjs"
+for f in "$codex_lock" "$net_guard" "$checker"; do
+  test -f "$f" || fail "required fixture missing: $f"
+done
+command -v jq >/dev/null 2>&1 || fail "jq required (run via the tests devShell)"
 pkg_out=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.packageOutPath") ||
   fail "could not evaluate packaged dsh outPath"
 pkg_drv=$(nix eval --impure --raw --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.packageDrvPath") ||
   fail "could not evaluate packaged dsh drvPath"
-echo "hm host e2e: eval gate passed; activation drv $drv; package $pkg_out; package drv $pkg_drv"
+echo "hm host e2e: eval gate passed; activation drv $drv; package $pkg_out; package drv $pkg_drv; codex $expected_codex; node $node_out"
 
 # --- daemon gate: scratch NIX_STATE_DIR must not mean a local empty store --
 echo "hm host e2e: daemon gate (NIX_REMOTE=$NIX_REMOTE, NIX_STATE_DIR=$NIX_STATE_DIR)..."
@@ -270,6 +292,16 @@ deriver=$(nix-store --query --deriver "$pkg_out" 2>"$tmp/deriver.stderr") ||
 [[ "$deriver" == "$pkg_drv" ]] ||
   fail "shared-DB proof: registered deriver mismatch (got: $deriver, want exactly: $pkg_drv)"
 echo "hm host e2e: shared-DB proof: registered deriver exactly matches evaluated drvPath ($deriver)"
+
+# --- project-pinned node (same pkgs the profiles build with) ---------------
+# Realised through the live daemon with a tmp out-link (no ambient runtime
+# is ever used for the codex probes below).
+nix build --impure --no-update-lock-file --no-write-lock-file --out-link "$tmp/node-pinned" --expr "let h = $base; in h.nodePackage" \
+  -L 2>"$tmp/nix-build-node.log" ||
+  fail "nix build of project-pinned nodejs failed (see $tmp/nix-build-node.log)"
+node_bin="$tmp/node-pinned/bin/node"
+test -x "$node_bin" || fail "pinned node binary missing ($node_bin)"
+echo "hm host e2e: project-pinned node $node_bin (out $node_out)"
 
 # --- real activation, driver 0: HM owns the profile install ----------------
 # NOTE: no --driver-version (1 would skip it), no SKIP_SANITY_CHECKS (real
@@ -313,6 +345,146 @@ VERBOSE=1 env -u DBUS_SESSION_BUS_ADDRESS -u DRY_RUN -u SKIP_SANITY_CHECKS \
 inventory "$HOME/.dsh" >"$after"
 cmp -s "$before" "$after" || fail "second activation changed ~/.dsh state"
 echo "hm host e2e: activation idempotent"
+
+# --- lock-bearing codex: stamp, direct-only manifest/layers, FOD lock -----
+# Activated paths only (never derivation string shape). The checker boot at
+# the end rewrites the activated cordis.yml, so every byte-identity proof
+# lives before it; the scratch tree is disposable afterwards.
+codex_dir="$HOME/.dsh/profiles/codex"
+test -d "$codex_dir" || fail "codex dir missing after activation"
+test -f "$codex_dir/package.json" || fail "codex package.json missing after activation"
+codex_stamp="$codex_dir/.dsh-nix-stamp"
+test -f "$codex_stamp" || fail "codex stamp missing after activation"
+[[ "$(cat "$codex_stamp")" == "$expected_codex" ]] ||
+  fail "codex stamp != expected artifact (got: $(cat "$codex_stamp"), want: $expected_codex)"
+# Both stamps survive the second activation byte-identical (the inventory
+# cmp above already covers the tree; re-assert the strings explicitly).
+[[ "$(cat "$stamp_file")" == "$expected_artifact" ]] ||
+  fail "agent stamp moved after second activation"
+[[ "$(cat "$codex_stamp")" == "$expected_codex" ]] ||
+  fail "codex stamp moved after second activation"
+codex_bundles=$(jq -c '.dsh.profile.bundles' "$codex_dir/package.json") ||
+  fail "codex package.json bundles unreadable"
+[[ "$codex_bundles" == '["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dsh-codex"]' ]] ||
+  fail "codex bundles != declared composition (got: $codex_bundles)"
+jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live" and .[0].config.useNativeCompaction == true' \
+  "$codex_dir/cordis.patch.yml" >/dev/null ||
+  fail "codex user layer mutated"
+[[ "$(ls "$codex_dir/node_modules")" == "dsh-codex" ]] ||
+  fail "codex profile top leaked beyond the direct spec (got: $(ls "$codex_dir/node_modules"))"
+test -L "$codex_dir/node_modules/dsh-codex" ||
+  fail "codex direct spec link missing after activation"
+codex_link=$(readlink "$codex_dir/node_modules/dsh-codex")
+codex_fod=${codex_link%/node_modules/dsh-codex}
+[[ -n "$codex_fod" && "$codex_fod" != "$codex_link" ]] ||
+  fail "codex link target has unexpected shape: $codex_link"
+jq -e '. == [{"spec":"dsh-codex@0.3.2","packageName":"dsh-codex"}]' \
+  "$codex_fod/direct-specs.json" >/dev/null ||
+  fail "codex direct-specs != exactly the declared spec"
+cmp -s "$codex_fod/pnpm-lock.yaml" "$codex_lock" ||
+  fail "codex FOD lock bytes != committed lock ($codex_lock)"
+test -d "$codex_fod/node_modules/.pnpm" ||
+  fail "codex FOD missing .pnpm graph ($codex_fod)"
+test -f "$codex_dir/node_modules/dsh-codex/package.json" ||
+  fail "codex spec package.json missing"
+test -f "$codex_dir/node_modules/dsh-codex/lib/index.js" ||
+  fail "codex spec index missing"
+test -f "$codex_dir/node_modules/dsh-codex/lib/bin.js" ||
+  fail "codex spec bin missing (executability is proven by the status run below)"
+echo "hm host e2e: codex stamp/composition/lock bytes from activated paths (fod=$codex_fod)"
+
+# --- activated codex runs: guard proof, real transitive imports ------------
+# Every child below runs on a pnpm-free PATH (pinned node only) in confined
+# scratch state -- never ambient runtimes, never the real HOME.
+child_path="$tmp/node-pinned/bin:/usr/bin:/bin"
+if env -i PATH="$child_path" "$(command -v bash)" -c 'command -v pnpm' >/dev/null 2>&1; then
+  fail "ambient pnpm reachable on the child PATH (must be pnpm-free)"
+fi
+"$node_bin" --require "$net_guard" --input-type=module -e \
+  "await fetch('http://example.com/')" 2>"$tmp/guard-proof.err" &&
+  fail "no-network guard did not block fetch"
+grep -q 'NETWORK_FORBIDDEN' "$tmp/guard-proof.err" ||
+  fail "guard error signature missing"
+echo "hm host e2e: no-network guard rejects egress"
+env -i PATH="$child_path" HOME="$HOME" \
+  XDG_DATA_HOME="$XDG_DATA_HOME" XDG_STATE_HOME="$XDG_STATE_HOME" \
+  XDG_CONFIG_HOME="$XDG_CONFIG_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+  NODE_OPTIONS="--require $net_guard" \
+  CODEX_DIR="$codex_dir" "$node_bin" --experimental-import-meta-resolve --input-type=module -e "
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+// Resolve from the canonical package entry with ESM import conditions:
+// synthetic createRequire anchors do not follow profile links, and pi-ai
+// intentionally does not expose a CommonJS require entry.
+const codexUrl = pathToFileURL(realpathSync(process.env.CODEX_DIR + '/node_modules/dsh-codex/lib/index.js')).href;
+const m = await import(codexUrl);
+for (const k of ['loginOpenAICodex', 'openAICodexAuthStatus', 'diagnoseOpenAICodex']) {
+  if (!(k in m)) { console.error('missing export ' + k); process.exit(1); }
+}
+console.log('IMPORT-OK ' + Object.keys(m).length + ' keys');
+const llmUrl = import.meta.resolve('@deepseek-ai/dsh-llm-pi-ai', codexUrl);
+const llm = await import(llmUrl);
+console.log('LLM-OK ' + Object.keys(llm).length + ' keys from ' + llmUrl);
+const piUrl = import.meta.resolve('@earendil-works/pi-ai', llmUrl);
+const pi = await import(piUrl);
+console.log('PIAI-OK ' + Object.keys(pi).length + ' keys from ' + piUrl);
+" >"$tmp/codex-import.log" 2>&1 ||
+  { cat "$tmp/codex-import.log" >&2; fail "activated codex/pi-ai real import (see $tmp/codex-import.log)"; }
+grep -q '^IMPORT-OK' "$tmp/codex-import.log" || fail "codex import marker missing"
+grep -q '^LLM-OK' "$tmp/codex-import.log" || fail "transitive dsh-llm-pi-ai import marker missing"
+grep -q '^PIAI-OK' "$tmp/codex-import.log" || fail "transitive pi-ai import marker missing"
+echo "hm host e2e: activated codex real import ($(head -1 "$tmp/codex-import.log"); $(grep '^PIAI-OK' "$tmp/codex-import.log"))"
+
+# Signed-out bin JSON from the ACTIVATED bin (fresh HOME/XDG, rejecting
+# guard): proves the bin executes for real, not mere file presence.
+bin_home="$tmp/codex-bin-home"
+mkdir -p "$bin_home/.local/share" "$bin_home/.local/state" "$bin_home/.config" "$bin_home/.cache"
+if env -i PATH="$child_path" HOME="$bin_home" \
+  XDG_DATA_HOME="$bin_home/.local/share" XDG_STATE_HOME="$bin_home/.local/state" \
+  XDG_CONFIG_HOME="$bin_home/.config" XDG_CACHE_HOME="$bin_home/.cache" \
+  NODE_OPTIONS="--require $net_guard" \
+  "$node_bin" "$codex_dir/node_modules/dsh-codex/lib/bin.js" status --json \
+  >"$tmp/codex-status.out" 2>"$tmp/codex-status.err"; then
+  printf '0' >"$tmp/codex-status.rc"
+else
+  printf '%s' "$?" >"$tmp/codex-status.rc"
+fi
+[[ "$(cat "$tmp/codex-status.rc")" == "1" ]] || {
+  cat "$tmp/codex-status.out" "$tmp/codex-status.err" >&2
+  fail "codex status --json rc != signed-out rc1 (got: $(cat "$tmp/codex-status.rc"))"
+}
+jq -e '. == {schemaVersion: 1, package: "dsh-codex", version: "0.3.2", status: "signed-out"}' \
+  "$tmp/codex-status.out" >/dev/null ||
+  fail "codex status --json != exact signed-out document"
+grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find package|ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL|NETWORK_FORBIDDEN' \
+  "$tmp/codex-status.out" "$tmp/codex-status.err" &&
+  fail "codex status hit import/pnpm/network error, not signed-out"
+test ! -e "$bin_home/.dsh" || fail "bin run created .dsh in fresh HOME"
+echo "hm host e2e: activated codex bin status --json rc1 exact signed-out, no egress"
+
+# Real packaged boot of the ACTIVATED codex (installed package as anchor,
+# rejecting guard, scratch fresh HOME/XDG, ephemeral port, no browser open):
+# CHECK-OK with no network/import failure. Runs after every byte-identity
+# proof: the checker rewrites the activated cordis.yml root, which is fine
+# on the disposable scratch tree. --no-open is load-bearing on a real host:
+# the web boot must never open the real default browser.
+check_home="$tmp/check-home"
+mkdir -p "$check_home/.local/share" "$check_home/.local/state" "$check_home/.config" "$check_home/.cache"
+if ! env -i PATH="$child_path" HOME="$check_home" \
+  XDG_DATA_HOME="$check_home/.local/share" XDG_STATE_HOME="$check_home/.local/state" \
+  XDG_CONFIG_HOME="$check_home/.config" XDG_CACHE_HOME="$check_home/.cache" \
+  NODE_OPTIONS="--require $net_guard" \
+  "$node_bin" --expose-internals \
+  --require "$pkg_out/lib/dsh-builtin-compat.cjs" \
+  "$checker" "$pkg_out" codex "$HOME/.dsh" --port 0 --no-open \
+  >"$tmp/check-codex.log" 2>&1; then
+  cat "$tmp/check-codex.log" >&2
+  fail "codex profile boot via packaged check-profile (see $tmp/check-codex.log)"
+fi
+grep -q '^CHECK-OK$' "$tmp/check-codex.log" || fail "codex boot lacks CHECK-OK"
+grep -Eq 'NETWORK_FORBIDDEN|ERR_MODULE_NOT_FOUND|Cannot find package' "$tmp/check-codex.log" &&
+  fail "codex boot hit network/import failure"
+echo "hm host e2e: codex profile boot CHECK-OK under rejecting guard (port 0, no-open)"
 
 # --- boot the profile-installed dsh, assert activated -> disposed ----------
 marker_file="$DSH_HOME/tui-fixture-lifecycle.log"
@@ -386,10 +558,30 @@ cp "$after" "$artifact_dir/idempotence-after.txt"
   echo "package_out (immutable): $pkg_out"
   echo "package_deriver: $pkg_deriver"
   echo "dsh: $dsh_real"
+  echo "codex_artifact (immutable): $expected_codex"
+  echo "codex_stamp: $(cat "$codex_stamp")"
+  echo "node_out (project-pinned): $node_out"
   echo "home-manager rev: $hm_rev / nixpkgs rev: $nixpkgs_rev / system: $system"
 } >"$artifact_dir/result.txt"
 cp "$tmp/activation.log" "$artifact_dir/activation.log"
 cp "$tmp/nix-build.log" "$artifact_dir/nix-build.log" 2>/dev/null || true
+cp "$tmp/nix-build-node.log" "$artifact_dir/nix-build-node.log" 2>/dev/null || true
+cp "$tmp/codex-import.log" "$artifact_dir/codex-import.log"
+cp "$tmp/codex-status.out" "$artifact_dir/codex-status-json.out"
+cp "$tmp/guard-proof.err" "$artifact_dir/guard-proof.err"
+# Token-redacted evidence copy: the web boot log may print token-bearing
+# localhost URLs; raw tokens must never persist in the artifact. CHECK-OK
+# and other diagnostics survive (only token values are masked: double- and
+# single-quoted forms first, then bare). The two post-checks are
+# fail-closed: any unmasked or half-masked token aborts instead of leaking.
+sed -E -e 's/token="[^"]*"/token=REDACTED/g' -e "s/token='[^']*'/token=REDACTED/g" -e "s/token=[^ '\"&]*/token=REDACTED/g" "$tmp/check-codex.log" >"$artifact_dir/check-codex.log"
+grep -q '^CHECK-OK$' "$artifact_dir/check-codex.log" || fail "redacted evidence lost CHECK-OK"
+if grep -E 'token=' "$artifact_dir/check-codex.log" | grep -qv 'token=REDACTED'; then
+  fail "raw token leaked into persisted evidence"
+fi
+if grep -Eq "token=REDACTED[\"']" "$artifact_dir/check-codex.log"; then
+  fail "quoted token remainder in persisted evidence"
+fi
 
 printf 'hm host e2e: passed (generation=%s dsh=%s evidence=%s)\n' \
   "$generation" "$dsh_real" "$artifact_dir"

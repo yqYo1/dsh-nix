@@ -48,7 +48,17 @@ let
       specsHash = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "Fixed-output hash pinning pnpm spec resolution for this profile.";
+        description = "spec plugin 成果物を検証する固定出力 hash。依存解決の固定には specsLock も指定します。";
+      };
+      specsLock = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = ''
+          spec plugin の依存解決を固定する、Git 管理の pnpm-lock.yaml。
+          指定時は root importer から manifest を復元し、frozen-lockfile で構築します。
+          宣言と一致しない lockfile は拒否し、未固定の依存解決へ fallback しません。
+          省略時の hash-only 設定は registry の範囲指定を build 時に再解決します。
+        '';
       };
     };
   };
@@ -56,7 +66,7 @@ let
   declarations = lib.mapAttrs (name: p:
     profilesLib.mkProfileBundle {
       inherit name;
-      inherit (p) userPatchesFile userPatches specsHash;
+      inherit (p) userPatchesFile userPatches specsHash specsLock;
       plugins = p.plugins;
       inherit inBoxNames;
     }) cfg.profiles;

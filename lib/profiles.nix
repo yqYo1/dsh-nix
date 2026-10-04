@@ -12,6 +12,7 @@ let
       userPatchesFile ? null,
       userPatches ? [ ],
       specsHash ? "",
+      specsLock ? null,
     }:
     let
       classified = map (plugin: classifyPlugin { inherit inBoxNames plugin; }) plugins;
@@ -33,16 +34,23 @@ let
           true
         else
           throw "dsh profile bundle: plugin packageNames must be unique";
+      specs = map (entry: entry.spec)
+        (builtins.filter (entry: entry.kind == "spec") classified);
+      checkedSpecsLock =
+        if specsLock != null && specs == [ ] then
+          throw "dsh profile bundle ${checkedName}: specsLock given but no spec plugins declared"
+        else
+          specsLock;
     in
     assert uniquePackageNames;
     {
       inherit name userPatchesFile userPatches specsHash;
+      specsLock = checkedSpecsLock;
       plugins = classified;
       inBox = map (entry: entry.name)
         (builtins.filter (entry: entry.kind == "in-box") classified);
       inherit nixPlugins;
-      specs = map (entry: entry.spec)
-        (builtins.filter (entry: entry.kind == "spec") classified);
+      inherit specs;
     };
 
   buildProfileBundle =
@@ -55,6 +63,7 @@ let
         inherit pkgs;
         specs = profile.specs;
         hash = profile.specsHash;
+        specsLock = profile.specsLock or null;
       };
       nixMetadata = map (entry: {
         packageName = entry.plugin.packageName;
@@ -104,6 +113,14 @@ let
 
       layers='[]'
       specIndex=0
+      if [ -n "$specRoot" ]; then
+        directCount=$(jq 'length' "$specRoot/direct-specs.json")
+        wantCount=$(jq -r '.specCount' "$metadata")
+        if [ "$directCount" != "$wantCount" ]; then
+          echo "dsh profile bundle: direct-specs.json has $directCount entries, want $wantCount" >&2
+          exit 1
+        fi
+      fi
       # Resolve the runtime package name without IFD: an explicit eval-time
       # packageName wins, otherwise read package.json at build time.
       resolve_nix_name() {
@@ -135,7 +152,11 @@ let
             layer=$(printf '%s' "$entry" | jq -r '.name')
             ;;
           spec)
-            layer=$(jq -r --argjson i "$specIndex" '.dependencies | keys_unsorted[$i]' "$specRoot/package.json")
+            # Declaration order comes from direct-specs.json (validated
+            # against the installer importer), never from package.json key
+            # order: pnpm insertion order is not the declaration order and
+            # auto-installed peers must never become layers.
+            layer=$(jq -r --argjson i "$specIndex" '.[$i].packageName' "$specRoot/direct-specs.json")
             specIndex=$((specIndex + 1))
             ;;
           nix)
@@ -227,10 +248,26 @@ let
       done < <(jq -c '.nixMetadata[]' "$metadata")
 
       if [ -n "$specRoot" ]; then
-        for entry in "$specRoot"/node_modules/*; do
-          [ -e "$entry" ] || continue
-          ln -s "$entry" "$out/node_modules/$(basename "$entry")"
-        done
+        # Project ONLY the ordered direct specs, one package at a time.
+        # The fetcher closure keeps the full .pnpm graph; each top-level
+        # symlink resolves through it at runtime.  Whole-scope symlinks
+        # would leak sibling packages and collide with same-scope Nix
+        # entries, so scoped names get a parent mkdir + single link.
+        # Auto-installed peers stay in the closure, never in the profile.
+        while IFS= read -r packageName; do
+          case "$seen_nix_names" in
+            *" $packageName "*) echo "dsh profile bundle: duplicate plugin packageName $packageName (spec vs nix)" >&2; exit 1 ;;
+          esac
+          seen_nix_names="$seen_nix_names$packageName "
+          src="$specRoot/node_modules/$packageName"
+          if [ ! -e "$src" ]; then
+            echo "dsh profile bundle: spec package $packageName missing from spec closure" >&2
+            exit 1
+          fi
+          parent=$(dirname "$packageName")
+          if [ "$parent" != . ]; then mkdir -p "$out/node_modules/$parent"; fi
+          ln -s "$src" "$out/node_modules/$packageName"
+        done < <(jq -r '.[].packageName' "$specRoot/direct-specs.json")
       fi
 
       jq -n --arg name ${lib.escapeShellArg profile.name} --argjson layers "$layers" --argjson dependencies "$dependencies" \
