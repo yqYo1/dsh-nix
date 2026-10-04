@@ -27,5 +27,5 @@ profilesLib.mkProfileBundle {
       };
     }
   ];
-  specsHash = "sha256-cPgMA5DkYZcaRQNB7ql/v4UNWY0ct7s8cRaFXXu5Hjc=";
+  specsHash = "sha256-uBKkJroE8dj6/pytUiIgYp8CyjrNtUVfmksMeL1bgWg=";
 }
