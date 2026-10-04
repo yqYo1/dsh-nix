@@ -92,7 +92,7 @@ jobs:
             echo "::notice::main requires signed commits; automation commits are unsigned — stopping before push/PR. Provide a signing setup or run the update manually."
           fi
 
-      - name: Retarget dsh input to released tag (build + check gated)
+      - name: Retarget dsh input to released tag (build + checks + host E2E gated)
         id: bump
         if: steps.siggate.outputs.required != 'true'
         env:
@@ -128,7 +128,7 @@ jobs:
           else
             git checkout -b "$BRANCH"
           fi
-          git add flake.nix flake.lock
+          git add flake.nix flake.lock tests/flake.lock
           git commit -m "chore(dsh): retarget input to ${TAG} (${SHA:0:12}, version ${VER})" || true
           # Explicit refspec: only the updater branch moves. No --force.
           git push origin "HEAD:refs/heads/${BRANCH}"
@@ -137,11 +137,11 @@ jobs:
           else
             gh pr create --draft --head "$BRANCH" --base main \
               --title "chore(dsh): update to ${TAG}" \
-              --body "Automated tag update, verified by \`nix build\` + \`nix flake check\` before opening.
+              --body "Automated tag update, verified by \`nix build\` + root \`nix flake check\` + tests \`nix flake check\` + host HM E2E before opening.
           - tag: \`${TAG}\`
           - commit: \`${SHA}\`
           - source package version (apps/cli at tag): \`${VER}\`
-          - lock: immutable rev + narHash in flake.lock
+          - locks: immutable rev + narHash in flake.lock (root); tests graph re-synced in tests/flake.lock (Home Manager pin untouched)
 
           If CI on this PR is red on the pnpm store hash, the package owner finishes \`version\` + \`hash\` in \`pkgs/dsh.nix\` (updater never edits owner files). Merge only after human review."
           fi

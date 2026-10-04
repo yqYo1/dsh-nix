@@ -113,11 +113,26 @@ upstream `examples/acp-agent/cordis.yml`).
 ## Verification
 
 ```sh
-nix flake check                    # artifact shape + module assertions
-./scripts/profile-smoke.sh         # boot tui profile with packaged dsh,
-                                   # assert activate/dispose lifecycle
-./scripts/hm-e2e.sh                # module eval -> activation -> boot
+# 公開 flake: profile 成果物・rc.2 boot・HM 非依存の module assertions
+nix flake check --accept-flake-config --no-update-lock-file --no-write-lock-file
+# 専用 test flake: 固定した実 Home Manager での評価・sandbox activation
+nix flake check ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file
+# TUI の実起動・破棄確認
+nix develop --no-update-lock-file --no-write-lock-file -c bash scripts/profile-smoke.sh
+# 実 daemon・driver 0 による profile install -> activation -> boot
+nix develop ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh
 ```
+
+配布物 (公開 flake) は Home Manager に依存しません。HM を使う回帰検証だけを
+`tests/` サブflake に分離し、HM ピンは `tests/flake.lock` のみが保持します。
+分離の前例は [catppuccin/nix の dev-flake](https://github.com/catppuccin/nix/blob/main/dev/flake.nix)
+です。`tests/flake.nix` は相対パス (`path:../.`) で親を参照するため、
+Nix >= 2.26 が必要です。利用者の Home Manager は利用者側で選択し、
+`homeManagerModules.dsh` の import 方法は変更しません。
+
+公開 flake の入力・lock を更新した場合は、`nix flake lock ./tests` も実行して
+テスト側の依存グラフを同期してください。DSH updater は両 lock を同期してから、
+公開 checks・専用 tests checks・実 host E2E を順に実行します。
 
 Real agent runs need credentials (`DEEPSEEK_API_KEY`, or configure the model
 in the web UI so `~/.dsh/.credentials.yaml` is populated).

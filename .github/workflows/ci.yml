@@ -2,11 +2,19 @@
 #
 # Runs on pull requests and on pushes to any branch EXCEPT main (main moves
 # only through reviewed merges, so CI belongs on the branch/PR side).
-# The gate is the repo's own `nix flake check`: profile artifact shape
-# assertions, dsh boot checks for every profile (including the fail-loud
-# counterexample), and the Home Manager module evaluation check — plus an
-# explicit immutability assertion that the `dsh` input is locked to a
+# The gates run strictly in sequence in ONE job (no continue-on-error, no
+# masked gates — a red gate stops everything after it):
+#   1. root `nix flake check` (HM-independent: profile artifact shape
+#      assertions, dsh boot checks for every profile including the fail-loud
+#      counterexample, module evaluation),
+#   2. tests `nix flake check` (pinned-HM regression from tests/flake.lock),
+#   3. real host Home Manager E2E (scripts/hm-e2e.sh via the tests devShell:
+#      genuine pinned-HM activation + profile install + dsh boot),
+# plus an explicit immutability assertion that the `dsh` input is locked to a
 # commit rev (tag pins must resolve, floating refs fail here).
+# Reject lock updates and never write locks during verification.
+# tests/flake.nix references the parent via a relative
+# path:../. input, which requires Nix >= 2.26 (asserted below).
 name: ci
 
 on:
@@ -42,12 +50,18 @@ jobs:
           name: yqyo1
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Assert immutable dsh lock (tag must resolve to a rev)
+      - name: Assert Nix >= 2.26 (relative path inputs in tests/flake.nix)
         run: |
           set -euo pipefail
-          nix flake metadata --json | jq -e '.locks.nodes.dsh.locked.rev | strings | length == 40' >/dev/null
+          nix --version
+          ver="$(nix --version | awk '{ print $3 }')"
+          if [ "$(printf '%s\n%s\n' "2.26" "$ver" | sort -V | head -1)" != "2.26" ]; then
+            echo "Nix >= 2.26 required for relative path inputs (got $ver)" >&2
+            exit 1
+          fi
 
-      - name: Flake check
+      - name: Resolve runner arch
+        id: arch
         run: |
           set -euo pipefail
           case "$(uname -m)" in
@@ -55,18 +69,33 @@ jobs:
             aarch64) SYSTEM="aarch64-linux" ;;
             *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
           esac
-          nix flake check --system "${SYSTEM}"
+          echo "system=${SYSTEM}" >> "$GITHUB_OUTPUT"
 
-      # Real host Home Manager regression gate (SAME job, AFTER the sandbox
-      # flake check — never a substitute for it). Runs the genuine pinned-HM
+      - name: Assert immutable dsh lock (tag must resolve to a rev)
+        run: |
+          set -euo pipefail
+          nix flake metadata --no-update-lock-file --no-write-lock-file --accept-flake-config --json | jq -e '.locks.nodes.dsh.locked.rev | strings | length == 40' >/dev/null
+
+      - name: Flake check (root, HM-independent)
+        run: |
+          set -euo pipefail
+          nix flake check --no-update-lock-file --no-write-lock-file --accept-flake-config --system "${{ steps.arch.outputs.system }}"
+
+      - name: Flake check (tests, pinned-HM regression)
+        run: |
+          set -euo pipefail
+          nix flake check ./tests --no-update-lock-file --no-write-lock-file --accept-flake-config --system "${{ steps.arch.outputs.system }}"
+
+      # Real host Home Manager regression gate (SAME job, AFTER both flake
+      # checks — never a substitute for either). Runs the genuine pinned-HM
       # activation + profile install + dsh boot in scripts/hm-e2e.sh via the
-      # devShell only, so no duplicate full-monorepo build is added here.
-      - name: Real host Home Manager E2E
+      # tests devShell only, so no duplicate full-monorepo build is added here.
+      - name: Real host Home Manager E2E (tests devShell)
         env:
           TMPDIR: ${{ runner.temp }}
           DSH_HM_E2E_ARTIFACT_DIR: ${{ runner.temp }}/dsh-hm-host-e2e
         run: |
           set -euo pipefail
-          nix develop --no-write-lock-file -c bash scripts/hm-e2e.sh
+          nix develop ./tests --no-update-lock-file --no-write-lock-file --accept-flake-config -c bash scripts/hm-e2e.sh
           echo "--- hm host e2e evidence (safe listing, no secrets) ---"
           find "${DSH_HM_E2E_ARTIFACT_DIR}" -maxdepth 2 | sort

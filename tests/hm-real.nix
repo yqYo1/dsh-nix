@@ -3,10 +3,11 @@
 # Evaluates programs.dsh through home-manager's own
 # lib.homeManagerConfiguration (DAG-typed home.activation, real file
 # linking, activationPackage topoSort) instead of stub options.  The
-# home-manager source is injected, so the flake needs no new input yet:
-#   nix build --impure --expr \
-#     '(import ./tests/hm-real.nix { pkgs = import <nixpkgs> {}; hmPath = <home-manager source>; }).check' \
+# home-manager source is injected from the tests subflake inputs (pinned in
+# tests/flake.lock), so the root flake stays Home Manager-independent:
+#   nix build ./tests#checks.<system>.home-manager-integration \
 #     --out-link scratch/child-hm -L
+# (see tests/hm-activation-contract.sh, the sandboxed worker for this gate).
 # `check` is a REAL regression derivation: it builds three HM generations
 # (gen1: agent+extra, gen2: agent-only with changed home patch, gen3: empty)
 # and runs each generation's actual ./activate (plus a DRY_RUN leg and a
