@@ -18,7 +18,17 @@
 {
   description = "Nix-native DSH profile packager";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://yqyo1.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "yqyo1.cachix.org-1:8v2GAv9lm0AURGOHo92N4+lgAhVE0+v8ou3DFT7hDEg="
+    ];
+  };
+
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.systems.url = "github:nix-systems/default";
   # Regression tests use real Home Manager, not replicated option stubs.
   inputs.home-manager = {
     url = "github:nix-community/home-manager/d9d750e4fc11c10cab2da677bdd31e427f3a3a71";
@@ -33,18 +43,14 @@
     {
       self,
       nixpkgs,
+      systems,
       home-manager,
       dsh,
     }:
     let
       lib = nixpkgs.lib;
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
-      forAllSystems = f: lib.genAttrs systems (system: f system);
+      supportedSystems = import systems;
+      forAllSystems = f: lib.genAttrs supportedSystems (system: f system);
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
@@ -108,9 +114,13 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          dshPackage = pkgs.callPackage ./pkgs/dsh.nix { src = dsh; };
         in
         {
-          dsh = pkgs.callPackage ./pkgs/dsh.nix { src = dsh; };
+          # The default package is the primary user-facing DSH CLI. This
+          # keeps `nix build` and `nix run .` useful without an attribute.
+          default = dshPackage;
+          dsh = dshPackage;
 
           tui = profilesLib.buildProfileBundle {
             inherit pkgs;

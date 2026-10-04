@@ -33,7 +33,7 @@ let
     pname = "deepseek-harness";
     inherit version src;
     fetcherVersion = 4;
-    hash = "sha256-+7jFaROKpN8XHFpulloK2lb0GsYXbEdMs/V7ZO9leKE=";
+    hash = "sha256-26wDKJYpsyz55zCe9qqn0vVbs+JI/Wi3c4EXYbffDNk=";
   };
 in
 stdenv.mkDerivation {
