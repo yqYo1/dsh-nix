@@ -114,9 +114,13 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          dshPackage = pkgs.callPackage ./pkgs/dsh.nix { src = dsh; };
         in
         {
-          dsh = pkgs.callPackage ./pkgs/dsh.nix { src = dsh; };
+          # The default package is the primary user-facing DSH CLI. This
+          # keeps `nix build` and `nix run .` useful without an attribute.
+          default = dshPackage;
+          dsh = dshPackage;
 
           tui = profilesLib.buildProfileBundle {
             inherit pkgs;

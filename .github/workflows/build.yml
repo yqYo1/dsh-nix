@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  marp_build:
+  dsh_build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -17,5 +17,5 @@ jobs:
         with:
           name: yqyo1
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-      - run: nix build .#dsh
-      - run: nix run --accept-flake-config .#dsh -- --version
+      - run: nix build --accept-flake-config
+      - run: nix run --accept-flake-config . -- --version
