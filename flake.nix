@@ -184,6 +184,14 @@
                 touch "$out"
               '';
 
+          # Genuine user-declared buildNpmPackage regression: the raw
+          # derivation goes straight into `plugins` (no installedRoot selectors).
+          profile-user-npm = (import ./tests/user-npm.nix {
+            inherit pkgs;
+            dshPackage = self.packages.${system}.dsh;
+            checker = ./scripts/check-profile.mjs;
+          }).check;
+
           boot-checker-wiring = import ./tests/boot-checker.nix { inherit pkgs; };
 
           profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;

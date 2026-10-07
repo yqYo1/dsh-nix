@@ -74,6 +74,19 @@ let
     inherit (codexBundle) userPatchesFile userPatches specsHash specsLock;
   };
 
+  # Genuine user-declared buildNpmPackage plugin, passed RAW (no
+  # mkPluginBundle selectors, no installed-root path surgery): the
+  # build-time resolver reads the installed root
+  # ($out/lib/node_modules/@dsh-poc/user-npm-plugin) and the manifest
+  # name (@dsh-poc/user-npm-plugin, never the dsh-poc-npm-user-pkg pname).
+  userPkg = import ./fixtures/user-npm-plugin.nix { inherit pkgs; };
+  userNpmDecl = {
+    plugins = [ userPkg ];
+    userPatchesFile = null;
+    userPatches = [ ];
+    specsHash = "";
+  };
+
   # Fixture profile declaration, shared verbatim with the user module below
   # so the expected artifact path matches the installed one exactly.
   agentDecl = {
@@ -101,6 +114,7 @@ let
       profiles = {
         agent = agentDecl;
         codex = codexDecl;
+        user-npm = userNpmDecl;
       };
     };
   };
@@ -132,6 +146,15 @@ let
     inherit pkgs;
     profile = codexBundle;
   });
+  # Expected immutable user-npm artifact, built from THE SAME module
+  # declaration above (store-path string only, same as above).
+  expectedUserNpmArtifact = toString (profilesLib.buildProfileBundle {
+    inherit pkgs;
+    profile = profilesLib.mkProfileBundle ({
+      name = "user-npm";
+      inherit inBoxNames;
+    } // userNpmDecl);
+  });
 in
 {
   generation = config.home.activationPackage;
@@ -159,9 +182,16 @@ in
       && activationValue.after == [ "writeBoundary" ];
     layoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/agent" activationScript;
     codexLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/codex" activationScript;
+    userNpmLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/user-npm" activationScript;
     # The translated declaration keeps the fixture lock AND the pinned real
     # FOD hash (never blank/discovery, never dropped to live resolve).
     codexLocked = codexDecl.specsLock != null && codexDecl.specsHash != "" && codexDecl.specsHash == codexBundle.specsHash;
   };
   inherit expectedAgentArtifact expectedCodexArtifact;
+  inherit expectedUserNpmArtifact;
+  # Immutable installed package path of the raw user derivation (the
+  # effective root lives at $out/lib/node_modules/@dsh-poc/user-npm-plugin;
+  # the harness derives it from here, never from the pname string).
+  userNpmOutPath = userPkg.outPath;
+  userNpmDrvPath = userPkg.drvPath;
 }

@@ -121,6 +121,49 @@ let
           exit 1
         fi
       fi
+      # Resolve the effective package root without IFD: a root package.json
+      # wins; otherwise accept exactly one direct buildNpmPackage installed
+      # root ($pkg/lib/node_modules/<name> or @<scope>/<name>). Zero or
+      # multiple candidates fail loud; deep transitive manifests are never
+      # searched and pname/store names never infer identity.
+      resolve_effective_root() {
+        pkg="$1"
+        if [ -f "$pkg/package.json" ]; then
+          printf '%s' "$pkg"
+          return 0
+        fi
+        nm="$pkg/lib/node_modules"
+        count=0
+        chosen=""
+        listed=""
+        if [ -d "$nm" ]; then
+          for manifest in "$nm"/*/package.json; do
+            [ -f "$manifest" ] || continue
+            dir=$(dirname "$manifest")
+            case "$(basename "$dir")" in @*) continue ;; esac
+            count=$((count + 1))
+            chosen="$dir"
+            listed="$listed $dir"
+          done
+          for manifest in "$nm"/@*/*/package.json; do
+            [ -f "$manifest" ] || continue
+            dir=$(dirname "$manifest")
+            count=$((count + 1))
+            chosen="$dir"
+            listed="$listed $dir"
+          done
+        fi
+        if [ "$count" -eq 1 ]; then
+          printf '%s' "$chosen"
+          return 0
+        fi
+        if [ "$count" -eq 0 ]; then
+          echo "dsh profile bundle: no package.json at $pkg/package.json and no installed package under $pkg/lib/node_modules (want exactly one direct root)" >&2
+        else
+          echo "dsh profile bundle: ambiguous installed packages under $pkg/lib/node_modules (found $count:$listed); pass an explicit installed root path" >&2
+        fi
+        return 1
+      }
       # Resolve the runtime package name without IFD: an explicit eval-time
       # packageName wins, otherwise read package.json at build time.
       resolve_nix_name() {
@@ -161,8 +204,9 @@ let
             ;;
           nix)
             packagePath=$(printf '%s' "$entry" | jq -r '.packagePath')
-            packageName=$(resolve_nix_name "$entry" "$packagePath") || exit 1
-            if is_nix_layer "$entry" "$packagePath"; then
+            effectiveRoot=$(resolve_effective_root "$packagePath") || exit 1
+            packageName=$(resolve_nix_name "$entry" "$effectiveRoot") || exit 1
+            if is_nix_layer "$entry" "$effectiveRoot"; then
               layer=$packageName
             else
               layer=""
@@ -178,12 +222,13 @@ let
       seen_nix_names=" "
       while IFS= read -r entry; do
         packagePath=$(printf '%s' "$entry" | jq -r '.packagePath')
-        packageName=$(resolve_nix_name "$entry" "$packagePath") || exit 1
+        effectiveRoot=$(resolve_effective_root "$packagePath") || exit 1
+        packageName=$(resolve_nix_name "$entry" "$effectiveRoot") || exit 1
         case "$seen_nix_names" in
           *" $packageName "*) echo "dsh profile bundle: plugin packageNames must be unique (duplicate $packageName)" >&2; exit 1 ;;
         esac
         seen_nix_names="$seen_nix_names$packageName "
-        dependencies=$(printf '%s' "$dependencies" | jq -c --arg name "$packageName" --arg path "$packagePath" '. + {($name): $path}')
+        dependencies=$(printf '%s' "$dependencies" | jq -c --arg name "$packageName" --arg path "$effectiveRoot" '. + {($name): $path}')
         parent=$(dirname "$packageName")
         if [ "$parent" != . ]; then mkdir -p "$out/node_modules/$parent"; fi
         dest="$out/node_modules/$packageName"
@@ -191,7 +236,7 @@ let
         # patches (local paths, raw bundle derivations) stay as symlinks.
         explicitPatch=$(printf '%s' "$entry" | jq -r '.explicitPatch // ""')
         if [ -z "$explicitPatch" ] || [ "$explicitPatch" = "null" ]; then
-          ln -s "$packagePath" "$dest"
+          ln -s "$effectiveRoot" "$dest"
         else
           # Explicit patchPath must yield an rc.2-consumable bundle layer:
           # project the package under node_modules with a manifest that
@@ -220,9 +265,9 @@ let
                 # an external patch shares the package file's basename).
                 if [ "$base" = "$patchBase" ]; then continue; fi
                 ln -s "$src" "$dest/$base"
-              done < <(find "$packagePath" -mindepth 1 -maxdepth 1 -print)
+              done < <(find "$effectiveRoot" -mindepth 1 -maxdepth 1 -print)
               cp "$explicitPatch" "$dest/$patchBase"
-              jq --arg patch "$patchBase" '.dsh.bundle.patch = $patch' "$packagePath/package.json" > "$dest/package.json"
+              jq --arg patch "$patchBase" '.dsh.bundle.patch = $patch' "$effectiveRoot/package.json" > "$dest/package.json"
               ;;
             *)
               case "$explicitPatch" in
@@ -231,8 +276,8 @@ let
                   exit 1
                   ;;
               esac
-              if [ ! -f "$packagePath/$explicitPatch" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName not found in $packagePath" >&2
+              if [ ! -f "$effectiveRoot/$explicitPatch" ]; then
+                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName not found in $effectiveRoot" >&2
                 exit 1
               fi
               mkdir -p "$dest"
@@ -240,8 +285,8 @@ let
                 base=$(basename "$src")
                 if [ "$base" = "package.json" ]; then continue; fi
                 ln -s "$src" "$dest/$base"
-              done < <(find "$packagePath" -mindepth 1 -maxdepth 1 -print)
-              jq --arg patch "$explicitPatch" '.dsh.bundle.patch = $patch' "$packagePath/package.json" > "$dest/package.json"
+              done < <(find "$effectiveRoot" -mindepth 1 -maxdepth 1 -print)
+              jq --arg patch "$explicitPatch" '.dsh.bundle.patch = $patch' "$effectiveRoot/package.json" > "$dest/package.json"
               ;;
           esac
         fi

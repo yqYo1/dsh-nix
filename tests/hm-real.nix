@@ -9,7 +9,8 @@
 #     --out-link scratch/child-hm -L
 # (see tests/hm-activation-contract.sh, the sandboxed worker for this gate).
 # `check` is a REAL regression derivation: it builds three HM generations
-# (gen1: agent+extra+codex(lock-bearing spec, real FOD), gen2: agent-only
+# (gen1: agent+extra+codex(lock-bearing spec, real FOD)+user-npm(raw
+# user-declared buildNpmPackage), gen2: agent-only
 # with changed home patch, gen3: empty)
 # and runs each generation's actual ./activate (plus a DRY_RUN leg and a
 # symlinked-root refusal leg) under isolated scratch HOME/XDG dirs.
@@ -50,6 +51,12 @@ let
   codexHash = "sha256-ndnvYvDgL6iNOR8u1JM38NiYg/dmpUCw9HmxUzqKeJg=";
   codexLock = ./fixtures/codex-pnpm-lock.yaml;
   netGuard = ./fixtures/no-net-guard.cjs;
+
+  # Genuine user-declared buildNpmPackage plugin, passed RAW into
+  # `plugins` (no mkPluginBundle selectors, no installed-root path
+  # surgery): the manifest name (@dsh-poc/user-npm-plugin) differs from
+  # the derivation pname (dsh-poc-npm-user-pkg) on purpose.
+  userNpmPkg = import ./fixtures/user-npm-plugin.nix { inherit pkgs; };
 
   # Stand-ins for the Nix CLI inside the sandboxed check builder (no
   # daemon there).  Every generation is a pre-realised derivation input,
@@ -237,6 +244,12 @@ let
         specsLock = codexLock;
         specsHash = codexHash;
       };
+      # User-declared buildNpmPackage profile, declared directly as
+      # plugins = [ userNpmPkg ] (gen2 removes it again, proving managed
+      # cleanup of derivation-backed profiles too).
+      user-npm = {
+        plugins = [ userNpmPkg ];
+      };
     };
     settings = { seed = "gen1"; };
     homePatchesFile = patchV1;
@@ -288,7 +301,10 @@ let
     && specLockThreaded
     # The gen1 lock-bearing profile keeps its specsLock AND the pinned
     # real FOD hash through mkDecls (never blank/discovery, never stale).
-    && codexDeclLocked;
+    && codexDeclLocked
+    # The gen1 user-npm declaration keeps the RAW derivation through
+    # mkDecls into a nix entry (never wrapped, projected, or dropped).
+    && userNpmDeclDirect;
 
   # A lock-bearing declaration must keep its specsLock through mkDecls
   # (no silent fallback to live resolve / cached broken FOD).
@@ -304,6 +320,14 @@ let
   codexDeclLocked =
     let decls = mkDecls gen1cfg.profiles;
     in decls.codex.specsLock != null && decls.codex.specsHash == codexHash;
+
+  # The raw user derivation must survive mkDecls as a nix entry whose
+  # packagePath is the declared derivation itself (no selector wrapping,
+  # no installed-root projection at declaration time).
+  userNpmDeclDirect =
+    let decls = mkDecls gen1cfg.profiles;
+    in decls.user-npm.nixPlugins != [ ]
+      && (builtins.head decls.user-npm.nixPlugins).packagePath == userNpmPkg;
 
   # Expected profile artifacts, rebuilt from identical declarations so the
   # stamp assertions compare exact store paths (module builds the same).
@@ -347,6 +371,8 @@ let
         codexArtifact1 = artifacts1.codex;
         codexLockFile = codexLock;
         codexGuard = netGuard;
+        userNpmArtifact1 = artifacts1.user-npm;
+        userNpmPkgOut = userNpmPkg;
         fixtureV1 = patchV1;
         fixtureV2 = patchV2;
       } ''
@@ -475,6 +501,41 @@ let
         || fail "codex profile top leaked beyond the direct spec"
       pass "gen1 codex stamp/composition/lock bytes from activated paths"
 
+      # --- gen1 user-declared buildNpmPackage profile (ACTIVATED paths) --
+      # Declared directly as plugins = [ userNpmPkg ]: stamp, scoped
+      # direct-only shape, and the installed-root link come from the
+      # materialised $HOME copy, never from derivation string shape.
+      [ -d "$homeA/.dsh/profiles/user-npm" ] || fail "user-npm dir missing after gen1"
+      [ "$(cat "$homeA/.dsh/profiles/user-npm/.dsh-nix-stamp")" = "$userNpmArtifact1" ] \
+        || fail "user-npm stamp != gen1 artifact outPath"
+      jq -e '.dsh.profile.bundles == ["@dsh-poc/user-npm-plugin"]' \
+        "$homeA/.dsh/profiles/user-npm/package.json" > /dev/null \
+        || fail "user-npm bundles != manifest-declared layer"
+      jq --arg want "$userNpmPkgOut/lib/node_modules/@dsh-poc/user-npm-plugin" \
+        -e '.dependencies."@dsh-poc/user-npm-plugin" == $want' \
+        "$homeA/.dsh/profiles/user-npm/package.json" > /dev/null \
+        || fail "user-npm dependencies does not map the manifest name to the installed package root"
+      case "$userNpmPkgOut" in
+        *dsh-poc-npm-user-pkg*) pass "user-npm derivation pname differs from manifest name" ;;
+        *) fail "user-npm store path lost the dsh-poc-npm-user-pkg pname" ;;
+      esac
+      [ "$(ls "$homeA/.dsh/profiles/user-npm/node_modules")" = "@dsh-poc" ] \
+        || fail "user-npm profile top leaked beyond the direct scope"
+      test -d "$homeA/.dsh/profiles/user-npm/node_modules/@dsh-poc" \
+        || fail "user-npm scope parent is not a real dir"
+      test ! -L "$homeA/.dsh/profiles/user-npm/node_modules/@dsh-poc" \
+        || fail "user-npm scope parent is a symlink (whole-scope leak)"
+      test -L "$homeA/.dsh/profiles/user-npm/node_modules/@dsh-poc/user-npm-plugin" \
+        || fail "user-npm scoped package is not a single exact link"
+      userNpmLink=$(readlink "$homeA/.dsh/profiles/user-npm/node_modules/@dsh-poc/user-npm-plugin")
+      [ "$userNpmLink" = "$userNpmPkgOut/lib/node_modules/@dsh-poc/user-npm-plugin" ] \
+        || fail "user-npm link != immutable installed root (got: $userNpmLink)"
+      jq -e '.name == "@dsh-poc/user-npm-plugin"' "$userNpmLink/package.json" > /dev/null \
+        || fail "user-npm link target manifest name mismatch (pname must never infer identity)"
+      test -d "$userNpmLink/node_modules/is-odd" || fail "user-npm runtime is-odd missing under installed root"
+      test -d "$userNpmLink/node_modules/is-number" || fail "user-npm transitive is-number missing under installed root"
+      pass "gen1 user-npm stamp/scoped shape/installed root from activated paths"
+
       # Real transitive import + signed-out bin JSON from the ACTIVATED
       # paths (fresh HOME/XDG, rejecting no-network guard, pnpm-free
       # PATH): proves the realised artifact runs, not string shape.
@@ -519,6 +580,25 @@ let
       test ! -e "$binHome/.dsh" || fail "bin run created .dsh in fresh HOME"
       pass "activated codex: real import ($(cat "$work/codex-import.log")) + signed-out bin JSON, no egress"
 
+      # Real transitive import from the ACTIVATED user-npm projection
+      # (fresh HOME/XDG, rejecting no-network guard, pnpm-free PATH):
+      # is-odd -> is-number executes for real, not symlink shape. (No
+      # authentication claim: this fixture asserts function, not sign-in.)
+      env -i PATH=${pkgs.nodejs}/bin:/usr/bin:/bin HOME="$importHome" \
+        XDG_DATA_HOME="$importHome/.local/share" XDG_STATE_HOME="$importHome/.local/state" \
+        XDG_CONFIG_HOME="$importHome/.config" XDG_CACHE_HOME="$importHome/.cache" \
+        NODE_OPTIONS="--require $codexGuard" \
+        ${pkgs.nodejs}/bin/node --input-type=module -e "
+        const { checkOdd } = await import('$homeA/.dsh/profiles/user-npm/node_modules/@dsh-poc/user-npm-plugin/lib/index.js');
+        if (checkOdd(3) !== true) { console.error('odd3 != true'); process.exit(1); }
+        if (checkOdd(4) !== false) { console.error('odd4 != false'); process.exit(1); }
+        console.log('USERNPM-IMPORT-OK odd3=true odd4=false');
+      " > "$work/usernpm-import.log" 2>&1 \
+        || { cat "$work/usernpm-import.log" >&2; fail "activated user-npm transitive import"; }
+      grep -q '^USERNPM-IMPORT-OK' "$work/usernpm-import.log" || fail "user-npm import marker missing"
+      test ! -e "$importHome/.dsh" || fail "user-npm import created .dsh in fresh HOME"
+      pass "activated user-npm: real import ($(cat "$work/usernpm-import.log")), no egress"
+
       # --- seed on empty homeB (+0600 permissions) -------------------------
       run_act "$gen1act" "$homeB"
       grep -q '"seed"' "$homeB/.dsh/settings.yaml" \
@@ -534,6 +614,8 @@ let
       after=$(snapshot "$homeA")
       [ "$before" = "$after" ] || fail "gen1 second activation changed state"
       pass "gen1 activation is idempotent"
+      [ "$(cat "$homeA/.dsh/profiles/user-npm/.dsh-nix-stamp")" = "$userNpmArtifact1" ] \
+        || fail "user-npm stamp moved after second activation"
 
       # --- gen2 refresh on homeA ------------------------------------------
       run_act "$gen2act" "$homeA"
@@ -555,7 +637,9 @@ let
         || fail "removed double-dot-within-name profile not cleaned (cleanup *..* regression)"
       [ ! -e "$homeA/.dsh/profiles/codex" ] \
         || fail "removed lock-bearing profile 'codex' not cleaned"
-      pass "gen2 removes all tricky profiles including a..b, plus lock-bearing codex"
+      [ ! -e "$homeA/.dsh/profiles/user-npm" ] \
+        || fail "removed user-declared profile 'user-npm' not cleaned"
+      pass "gen2 removes all tricky profiles including a..b, plus lock-bearing codex and user-npm"
       [ "$(cat "$homeA/.dsh/profiles/custom/keep.txt")" = "custom" ] \
         || fail "unmanaged profile dir touched on refresh"
       [ "$(cat "$homeA/.dsh/settings.yaml")" = "user-settings-sentinel" ] \
@@ -641,6 +725,8 @@ let
         echo "extraArtifact1: $extraArtifact1"
         echo "agentArtifact2: $agentArtifact2"
         echo "codexArtifact1: $codexArtifact1"
+        echo "userNpmArtifact1: $userNpmArtifact1"
+        echo "userNpmPkgOut: $userNpmPkgOut"
       } > $out/result.txt
       pass "ALL REAL ACTIVATION CHECKS PASSED"
     '';

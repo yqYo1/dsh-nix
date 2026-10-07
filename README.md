@@ -13,7 +13,8 @@ profile の `plugins` には、次の形式を宣言順に混在させられま�
 
 - **in-box bundle**: `"@deepseek-ai/dsh-base"` などの名前。実行する DSH package から解決します。
 - **pnpm spec**: `"dsh-codex@0.3.2"` や `"github:someone/plugin"`。build 時に transitive／peer dependency を含む pnpm graph を構築します。
-- **Nix package／path**: `pkgs.fetchFromGitHub { ... }` や `./my-plugin`。独自の依存 closure を保持したまま profile にリンクします。
+- **Nix package**: 利用者が宣言した `pkgs.buildNpmPackage { ... }` などの derivation。構築済み plugin の依存 closure を保持したまま profile にリンクします。
+- **Nix path**: `./my-plugin` など、直下に `package.json` がある構築済み plugin directory。必要な runtime dependency もその成果物に含めます。
 
 各 package の `dsh.bundle.patch` 宣言から layer を登録します。
 `plugins` の宣言順が layer 順であり、pnpm manifest や lockfile の key 順には依存しません。
@@ -91,6 +92,44 @@ GitHub Actions からの cache upload には repository secret `CACHIX_AUTH_TOKE
 これは stdio 上の JSON-RPC を使用する ACP server で、`--config` に leaf `cordis.yml` を指定します。
 設定例は upstream の `examples/acp-agent/cordis.yml` を参照してください。
 
+## ユーザー定義 npm package
+
+`pkgs.buildNpmPackage` の derivation は、`plugins` に直接指定します。
+ソース、`package-lock.json`、`npmDepsHash` と build の設定は利用者の package 宣言で管理し、dsh-nix は完成した plugin を profile に構成します。
+この指定に `specsLock`／`specsHash` は不要です。
+
+以下は、前節の Home Manager module を import した設定に加える例です。
+`./my-plugin` は `package.json`、`package-lock.json`、`dsh.bundle.patch` が参照する patch と runtime のソースを含む npm project とします。
+
+```nix
+{ pkgs, ... }:
+let
+  myPlugin = pkgs.buildNpmPackage {
+    pname = "my-plugin";
+    version = "1.0.0";
+    src = ./my-plugin;
+    npmDepsHash = pkgs.lib.fakeHash; # 初回 build の got: を取得して置き換えます。
+    dontNpmBuild = true; # コンパイル不要な plugin の例です。
+  };
+in
+{
+  programs.dsh = {
+    enable = true;
+    profiles.custom.plugins = [ "@deepseek-ai/dsh-base" myPlugin ];
+  };
+}
+```
+
+`src` には、利用者の flake で固定した source input も指定できます。
+初回 build が報告した `got:` の実 hash を `npmDepsHash` に指定し、同じ宣言を再 build して成功を確認します。
+コンパイルが必要な plugin は、`dontNpmBuild` を省略して必要な npm build script を実行します。
+
+plugin root は build 時に解決します。
+成果物の直下に `package.json` があればその directory を優先し、なければ `lib/node_modules/<name>/package.json`（scoped package を含む）の直接 package を探します。
+候補がゼロ件または複数件の場合は build が失敗します。
+package 名は derivation の `pname` ではなく、選択した `package.json` の `name` から読み取ります。
+plugin 内の `node_modules` は移動や flatten をせず保持するため、transitive dependency は plugin の既存構成から解決されます。
+
 ## spec plugin の依存固定
 
 `specsLock` には、対象の spec plugin だけを root importer (`.`) の直接依存として宣言した、pnpm 11 の `pnpm-lock.yaml` を指定します。
@@ -134,8 +173,9 @@ DSH updater は両 lock を同期した後、公開 checks・専用 tests checks
 
 - **validator／成果物**: 宣言順、固定した lock bytes、scope 内の共存、直接 plugin のみの投影、実 transitive import を検証します。
 - **Codex runtime**: fresh HOME/XDG と通信拒否 guard を使用し、実 CLI、package 付属の private pnpm を使用する `dsh plugin exec`、実 profile の boot/dispose を検証します。
-- **HM sandbox**: 実 activation program を複数世代で実行し、lock-bearing spec profile の展開・実 import・削除、再実行、利用者データの保持、symlink の拒否を検証します。sandbox 内の Nix CLI は shim であり、実 host の package install の証明とは区別します。
-- **HM host**: scratch に HOME/XDG／Nix state を隔離し、実 daemon と driver 0 で指定 package を install します。実利用者の profile・gcroot・app data が変わらないことを外部 guard で確認します。
+- **ユーザー定義 npm package**：本物の `buildNpmPackage` の derivation を直接宣言し、標準出力 root の選択、曖昧な入力の拒否、依存 import、CLI、rc.2 の boot と lifecycle を検証します。
+- **HM sandbox**: 実 activation program を複数世代で実行し、spec profile とユーザー定義 npm package の展開、実 import、削除、再実行、利用者データの保持、symlink の拒否を検証します。sandbox 内の Nix CLI は shim であり、実 host の package install の証明とは区別します。
+- **HM host**: scratch に HOME/XDG／Nix state を隔離し、実 daemon と driver 0 で指定 package を install し、展開した npm plugin の実 import、CLI、rc.2 boot を検証します。実利用者の profile、gcroot、app data が変わらないことを外部 guard で確認します。
 
 `scripts/check-profile.mjs` は、固定した rc.2 の `loadProfile` → `createRuntimeResolution` → `readProfilePatches` → `boot` の経路を使用します。
 DSH 自身の startup audit が失敗した場合や boot 中に非ゼロの終了要求が発生した場合は、`CHECK-OK` を出さず失敗します。
