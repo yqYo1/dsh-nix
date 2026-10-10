@@ -1,0 +1,15 @@
+{
+  "name": "@dsh-poc/user-npm-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json",
+    "./plugin": "./lib/plugin.mjs"
+  },
+  "bin": { "dsh-poc-npm-plugin": "./lib/bin.js" },
+  "dependencies": { "is-odd": "3.0.1" },
+  "dsh": { "bundle": { "patch": "cordis.patch.yml" } }
+}

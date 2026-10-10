@@ -1,0 +1,3 @@
+- insert:
+    - id: synth-nix-sibling-row
+      name: '@dsh-synth/nix-sibling/plugin'

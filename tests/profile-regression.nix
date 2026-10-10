@@ -336,6 +336,5 @@ assert deferredEval.success;
 
       mkdir -p "$out"
       printf 'REGRESSION-OK %s\n' "$ordered" > "$out/marker"
-      touch "$out"
     '';
 }

@@ -38,6 +38,17 @@ let
             plugins = [ "@deepseek-ai/dsh-base" ../examples/plugins/tui-core ];
             userPatches = [ ];
           };
+          # Eval-only spec profile: proves the module accepts a
+          # lock-pinned spec composition (specsLock + specsHash thread
+          # through to the declaration). Never built here: the FOD hash
+          # stays discovery-blank until the parent pins it, and this
+          # gate is evaluation-only (nix-instantiate --eval, no builds).
+          profiles.agent-spec = {
+            plugins = [ "dsh-codex@0.3.2" ];
+            userPatches = [ ];
+            specsLock = ./fixtures/codex-pnpm-lock.yaml;
+            specsHash = "";
+          };
         };
       }
     ];
@@ -59,6 +70,8 @@ in
     (lib.hasInfix "/'" activation == false)
     (lib.hasInfix ".dsh-nix-stamp" activation)
     (lib.hasInfix "dsh-profile-agent" activation)
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/agent-spec" activation)
+    (lib.hasInfix "dsh-profile-agent-spec" activation)
     # Removed profiles are cleaned: manifest tracks managed names.
     (lib.hasInfix ".dsh-nix-managed-profiles" activation)
     # The CLI installs EXACTLY unmodified: derivation identity, not shape.
@@ -72,6 +85,8 @@ in
     (lib.hasInfix "/'" activation == false)
     (lib.hasInfix ".dsh-nix-stamp" activation)
     (lib.hasInfix "dsh-profile-agent" activation)
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/agent-spec" activation)
+    (lib.hasInfix "dsh-profile-agent-spec" activation)
     (lib.hasInfix ".dsh-nix-managed-profiles" activation)
     (builtins.length config.home.packages == 1)
     (builtins.head config.home.packages == externalPackage)

@@ -1,0 +1,22 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@dsh-nix/tui-core':
+        specifier: file:/build/spec-inputs/0
+        version: file:../spec-inputs/0
+
+packages:
+
+  '@dsh-nix/tui-core@file:../spec-inputs/0':
+    resolution: {directory: ../spec-inputs/0, type: directory}
+
+snapshots:
+
+  '@dsh-nix/tui-core@file:../spec-inputs/0': {}
