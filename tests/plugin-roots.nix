@@ -352,7 +352,7 @@ let
       done
       pass "label=manifest-name: no pname/store-derived keys in any positive leg"
 
-      printf 'PLUGIN-ROOTS-OK %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$out/passed"
+      printf 'PLUGIN-ROOTS-OK\n' > "$out/passed"
       pass "plugin-roots check complete (logs in $out/logs)"
     '';
 

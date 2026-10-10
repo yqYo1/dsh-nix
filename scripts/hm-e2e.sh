@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Real Home Manager host E2E: tests-flake-pinned HM activation + real profile install + dsh boot.
 #
-# What this proves (once the dsh package hash is real):
+# What this proves (the dsh package hash is a real pinned hash, so every
+# generation below is genuinely built and activated):
 #   1. The tests-flake-lock-pinned Home Manager (tests/flake.lock) evaluates
 #      programs.dsh into a real homeManagerConfiguration (DAG activation,
 #      real file linking) via tests/hm-host.nix -- no <nixpkgs>, no stub
@@ -81,9 +82,9 @@ if [ "$(printf '%s\n%s\n' '2.26' "$nix_version" | sort -V | head -1)" != '2.26' 
   exit 2
 fi
 timeout_seconds=${DSH_HM_E2E_TIMEOUT_SECONDS:-30}
-scratch=${TMPDIR:-/home/yayoi/.hermes/cache/scratch}
-outer_home=${HOME:-/home/yayoi}
-outer_user=${USER:-yayoi}
+scratch=${TMPDIR:?hm host e2e: TMPDIR must point at a scratch directory}
+outer_home=${HOME:?hm host e2e: HOME must be set}
+outer_user=${USER:?hm host e2e: USER must be set}
 artifact_dir=${DSH_HM_E2E_ARTIFACT_DIR:-$scratch/dsh-hm-host-e2e-latest}
 
 # Live-daemon socket: exact unix URI every real Nix CLI is routed to.

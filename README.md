@@ -80,23 +80,20 @@ dsh --profile web # http://127.0.0.1:3080
 ```sh
 nix build --accept-flake-config .#dsh
 nix build --accept-flake-config .#tui-spec
-nix eval .#profiles.tui-spec --json
+nix eval --accept-flake-config .#profiles.tui-spec --json
 ```
 
-`default` package／app は `dsh` です。
+`default` package は `dsh` です。
 flake configuration を受け入れると、公開 binary cache `yqyo1.cachix.org` を利用できます。
 署名検証用の公開鍵は `flake.nix` に固定されており、download に token は不要です。
 GitHub Actions からの cache upload には repository secret `CACHIX_AUTH_TOKEN` を使用します。
-
-`dsh-acp-demo` app も公開しています。
-これは stdio 上の JSON-RPC を使用する ACP server で、`--config` に leaf `cordis.yml` を指定します。
-設定例は upstream の `examples/acp-agent/cordis.yml` を参照してください。
 
 ## ユーザー定義 npm package
 
 `pkgs.buildNpmPackage` の derivation は、`plugins` に直接指定します。
 ソース、`package-lock.json`、`npmDepsHash` と build の設定は利用者の package 宣言で管理し、dsh-nix は完成した plugin を profile に構成します。
-この指定に `specsLock`／`specsHash` は不要です。
+Nix plugin だけを宣言する profile では、`specsLock`／`specsHash` は不要です。
+spec plugin と混在する場合は、spec 側の依存固定として従来どおり指定します。
 
 以下は、前節の Home Manager module を import した設定に加える例です。
 `./my-plugin` は `package.json`、`package-lock.json`、`dsh.bundle.patch` が参照する patch と runtime のソースを含む npm project とします。

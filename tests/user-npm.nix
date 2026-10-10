@@ -18,10 +18,11 @@
 # Reproduce the positive gate (from the repo root, no lock writes):
 #   nix build --accept-flake-config --no-update-lock-file \
 #     --no-write-lock-file .#checks.x86_64-linux.profile-user-npm
-# Probe a negative (each must FAIL to build):
+# Probe a negative (each must FAIL to build; <repo> is this repository's
+# worktree root):
 #   nix build --impure --accept-flake-config --no-update-lock-file \
 #     --no-write-lock-file --expr \
-#     'let f = builtins.getFlake "path:/home/yayoi/ghq/github.com/yqYo1/dsh-nix/.worktree/test-user-npm-package"; pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (import ./tests/user-npm.nix { inherit pkgs; dshPackage = f.packages.x86_64-linux.dsh; checker = ./scripts/check-profile.mjs; }).negativeMissingArtifact'
+#     'let f = builtins.getFlake "path:<repo>"; pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (import (f.outPath + "/tests/user-npm.nix") { inherit pkgs; dshPackage = f.packages.x86_64-linux.dsh; checker = f.outPath + "/scripts/check-profile.mjs"; }).negativeMissingArtifact'
 { pkgs, dshPackage, checker }:
 
 let
@@ -82,7 +83,7 @@ let
       fail() { echo "profile-user-npm FAIL: $*" >&2; exit 1; }
       pass() { echo "profile-user-npm ok: $*"; }
       # Execute production root/patch policy, including rejection paths.
-      grep -q '^PLUGIN-ROOTS-OK ' ${(import ./plugin-roots.nix { inherit pkgs; })}/passed
+      grep -q '^PLUGIN-ROOTS-OK$' ${(import ./plugin-roots.nix { inherit pkgs; })}/passed
       pass "production root/patch policy checks passed"
 
       # --- raw-derivation runtime shape: name / layer / order / direct-only ---

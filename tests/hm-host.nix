@@ -14,11 +14,11 @@
 # (This fixture file itself is still imported relative to the repo checkout,
 # exactly as before.)
 #
-# Gate mode is evaluation-only: the script asserts `checks` and reads
-# `activationDrvPath` / `expectedAgentArtifact` as store-path STRINGS
-# (toString never realises, so this stays green while the dsh package hash
-# is still a placeholder). After the parent integrates the real hash, the
-# same fixture's `generation` builds for real and its ./activate runs with
+# The script drives this fixture in two stages. First an evaluation-only
+# gate: it asserts `checks` and reads `activationDrvPath` / expected
+# artifact paths as store-path STRINGS (toString never realises). Then the
+# real stage: the same fixture's `generation` builds for real (the dsh
+# package hash is a real pinned hash) and its ./activate runs with
 # driver 0 (default): `nix-env --profile $XDG_STATE_HOME/nix/profiles/
 # home-manager --set` performs the profile install owned by pinned Home
 # Manager, and `nix-env -i home-manager-path` installs cfg.package.

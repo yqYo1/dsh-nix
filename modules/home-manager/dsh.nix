@@ -9,11 +9,13 @@
 # ~/.dsh/profiles/<name> (writable; dsh rewrites the profile root cordis.yml
 # on every boot), comparing a stamp against the artifact store path.
 #
-# `plugins` accepts three kinds in one ordered list:
+# `plugins` accepts four forms in one ordered list:
 #   - in-box bundle names  ("@deepseek-ai/dsh-base")          name only
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
-#   - Nix packages/paths   (pkgs.fetchFromGitHub { ... })     symlinked in
+#   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
+#     their effective root (package manifest or installed npm layout)
+#   - local plugin paths   (./my-plugin)                      symlinked in
 #
 # Requires the user's nixpkgs to provide fetchPnpmDeps + pnpmConfigHook when
 # `package` defaults to the callPackage-built dsh.
