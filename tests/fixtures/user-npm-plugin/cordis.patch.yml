@@ -1,0 +1,7 @@
+- insert:
+    - id: dsh-poc-npm-plugin-row
+      name: '@dsh-poc/user-npm-plugin/plugin'
+      config:
+        markerPath: !!js dshHomePath('poc-npm-fixture-lifecycle.log')
+        activatedMarker: activated
+        disposedMarker: disposed

@@ -17,7 +17,7 @@
 let
   expectedHmRev = "d9d750e4fc11c10cab2da677bdd31e427f3a3a71";
 
-  # The 10 HM-independent checks that must stay in the root flake,
+  # The HM-independent checks that must stay in the root flake,
   # exactly (sorted: builtins.attrNames returns sorted names).
   hmIndependentChecks = [
     "boot-checker-wiring"
@@ -28,8 +28,10 @@ let
     "profile-boot-web-nobase"
     "profile-codex"
     "profile-regression"
+    "profile-spec-lock"
     "profile-tui"
     "profile-tui-spec"
+    "profile-user-npm"
   ];
 
   fail = msg: throw "test-flake-contract: ${msg}";

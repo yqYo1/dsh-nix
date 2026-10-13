@@ -5,7 +5,7 @@
 # Optional args drive multi-generation scenarios (config refresh, plugin
 # removal, profile removal) for tests/hm-activation-contract.sh:
 #   profiles  attrset of profile declarations; each value accepts
-#             { plugins, userPatches ?, userPatchesFile ?, specsHash ? }
+#             { plugins, userPatches ?, userPatchesFile ?, specsHash ?, specsLock ? }
 #   settings  seed-only settings.yaml content
 #   homePatchesFile  machine-level patch layer path or null
 { pkgs
@@ -35,6 +35,9 @@ let
     userPatchesFile = null;
     userPatches = [ ];
     specsHash = "";
+    # Threaded (not dropped): a lock-bearing caller profile must reach
+    # mkProfileBundle intact, never silently fall back to live resolve.
+    specsLock = null;
   };
   normalized = lib.mapAttrs (name: p: profileDefaults // (if builtins.isAttrs p then p else { plugins = p; })) profiles;
   cfg = {
@@ -53,7 +56,7 @@ let
   declarations = lib.mapAttrs (name: p:
     profilesLib.mkProfileBundle {
       inherit name;
-      inherit (p) plugins userPatchesFile userPatches specsHash;
+      inherit (p) plugins userPatchesFile userPatches specsHash specsLock;
       inherit inBoxNames;
     }) normalized;
   artifacts = lib.mapAttrs (name: d: profilesLib.buildProfileBundle { inherit pkgs; profile = d; }) declarations;

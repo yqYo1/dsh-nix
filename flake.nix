@@ -174,15 +174,36 @@
                 expected_layers=${lib.escapeShellArg expectedLayers}
                 test "$actual_layers" = "$expected_layers"
                 test -L ${tuiSpecArtifact}/node_modules/@dsh-nix/tui-core
-                test -L ${tuiSpecArtifact}/node_modules/@dsh-nix
+                # New contract: exact-direct projection. The scope parent
+                # is a real directory holding a single package link; the
+                # old whole-scope symlink would leak siblings and collide
+                # with same-scope Nix entries.
+                test -d ${tuiSpecArtifact}/node_modules/@dsh-nix
+                test ! -L ${tuiSpecArtifact}/node_modules/@dsh-nix
 
                 touch "$out"
               '';
+
+          # Genuine user-declared buildNpmPackage regression: the raw
+          # derivation goes straight into `plugins` (no installedRoot selectors).
+          profile-user-npm = (import ./tests/user-npm.nix {
+            inherit pkgs;
+            dshPackage = self.packages.${system}.dsh;
+            checker = ./scripts/check-profile.mjs;
+          }).check;
 
           boot-checker-wiring = import ./tests/boot-checker.nix { inherit pkgs; };
 
           profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;
 
+          # Real-codex runtime gate: artifact shape (original assertions,
+          # preserved) + ordered direct projection via the live FOD, lock
+          # bytes retained, no auto-peer leakage, REAL transitive import,
+          # exact signed-out bin oracles under a genuine rejecting
+          # no-network guard (fresh HOME/XDG, pnpm-free PATH, DSH's own
+          # private pnpm), packaged signed-out `dsh plugin exec`,
+          # and an actual profile boot (checker + packaged rc.2, port 0).
+          # No credential, session, or compaction API runs are claimed.
           profile-codex =
             let
               profile = import ./tests/fixtures/codex-profile.nix {
@@ -190,15 +211,189 @@
               };
               artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
             in
-            pkgs.runCommand "dsh-profile-codex-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
-              jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
-                ${artifact}/package.json > /dev/null
-              test -f ${artifact}/node_modules/dsh-codex/package.json
-              jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live" and .[0].config.useNativeCompaction == true' \
-                ${artifact}/cordis.patch.yml > /dev/null
-              mkdir -p "$out"
-              printf 'CODEX-ARTIFACT-OK %s\n' ${artifact} > "$out/marker"
-            '';
+            pkgs.runCommand "dsh-profile-codex-check"
+              {
+                nativeBuildInputs = [ pkgs.jq pkgs.nodejs pkgs.diffutils ];
+                codexLock = ./tests/fixtures/codex-pnpm-lock.yaml;
+                guard = ./tests/fixtures/no-net-guard.cjs;
+              }
+              ''
+                set -euo pipefail
+                work="$TMPDIR/codex"
+                mkdir -p "$work"
+                fail() { echo "profile-codex FAIL: $*" >&2; exit 1; }
+                pass() { echo "profile-codex ok: $*"; }
+
+                # --- original artifact-shape assertions (preserved) ---
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
+                  ${artifact}/package.json > /dev/null
+                test -f ${artifact}/node_modules/dsh-codex/package.json
+                jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live" and .[0].config.useNativeCompaction == true' \
+                  ${artifact}/cordis.patch.yml > /dev/null
+                pass "artifact shape (bundles, user layer)"
+
+                # --- ordered direct projection via the live FOD ---
+                fod=$(dirname $(dirname $(readlink ${artifact}/node_modules/dsh-codex)))
+                jq -e '. == [{"spec":"dsh-codex@0.3.2","packageName":"dsh-codex"}]' \
+                  "$fod/direct-specs.json" > /dev/null \
+                  || fail "direct-specs not exactly the one declared spec"
+                cmp "$fod/pnpm-lock.yaml" "$codexLock" \
+                  || fail "FOD lock bytes differ from the committed lock"
+                test -f "$fod/direct-specs.json" -a -f "$fod/pnpm-lock.yaml" \
+                  || fail "FOD missing direct-specs.json/pnpm-lock.yaml"
+                pass "ordered direct projection + lock bytes retained"
+                [ "$(ls ${artifact}/node_modules)" = "dsh-codex" ] \
+                  || fail "profile top level leaked beyond the direct spec"
+                pass "no auto-peer leakage at profile top"
+
+                # --- guard positive control (before trusting it below) ---
+                ${pkgs.nodejs}/bin/node --require "$guard" --input-type=module -e \
+                  "await fetch('http://example.com/')" 2>"$work/guard-proof.err" \
+                  && fail "guard did not block fetch"
+                grep -q 'NETWORK_FORBIDDEN' "$work/guard-proof.err" \
+                  || fail "guard error signature missing"
+                pass "no-network guard rejects egress"
+
+                # --- real transitive import (not symlink shape) ---
+                ${pkgs.nodejs}/bin/node --input-type=module -e "
+                  const m = await import('${artifact}/node_modules/dsh-codex/lib/index.js');
+                  const keys = Object.keys(m);
+                  for (const k of ['loginOpenAICodex', 'openAICodexAuthStatus', 'diagnoseOpenAICodex']) {
+                    if (!keys.includes(k)) { console.error('missing export ' + k); process.exit(1); }
+                  }
+                  console.log('IMPORT-OK ' + keys.length + ' keys');
+                " > "$work/import.log" 2>&1 \
+                  || { cat "$work/import.log" >&2; fail "real codex index import"; }
+                grep -q '^IMPORT-OK' "$work/import.log" || fail "import marker missing"
+                pass "real transitive index import ($(cat "$work/import.log"))"
+
+                # --- bin oracles: fresh env, pnpm-free PATH, rejecting guard ---
+                export HOME="$work/home"
+                export XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state"
+                export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
+                mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+                if command -v pnpm > /dev/null 2>&1; then fail "ambient pnpm on PATH (must be pnpm-free)"; fi
+                pass "parent PATH proven pnpm-free"
+                run_bin() {
+                  # run_bin <label> <args...> : env -i + guard, captures rc/out/err
+                  label=$1; shift
+                  if env -i PATH=${pkgs.nodejs}/bin:/usr/bin:/bin HOME="$HOME" \
+                    XDG_DATA_HOME="$XDG_DATA_HOME" XDG_STATE_HOME="$XDG_STATE_HOME" \
+                    XDG_CONFIG_HOME="$XDG_CONFIG_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+                    NODE_OPTIONS="--require $guard" \
+                    ${pkgs.nodejs}/bin/node ${artifact}/node_modules/dsh-codex/lib/bin.js "$@" \
+                    > "$work/$label.out" 2> "$work/$label.err"; then
+                    printf '0' > "$work/$label.rc"
+                  else
+                    printf '%s' "$?" > "$work/$label.rc"
+                  fi
+                }
+                run_bin help --help
+                [ "$(cat "$work/help.rc")" = "0" ] || fail "bin --help rc"
+                grep -q 'Usage: dsh plugin --profile' "$work/help.out" || fail "bin --help text"
+                pass "bin --help rc0 under guard"
+                run_bin status status
+                [ "$(cat "$work/status.rc")" = "1" ] || fail "status rc is not the exact signed-out rc1"
+                [ "$(cat "$work/status.out")" = "OpenAI Codex: signed out" ] \
+                  || fail "status exact signed-out text"
+                grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find package|ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL|NETWORK_FORBIDDEN' "$work/status.out" "$work/status.err" \
+                  && fail "status rc1 is an import/net error, not signed-out"
+                pass "status rc1 exact signed-out (not import-error rc1)"
+                run_bin status-json status --json
+                [ "$(cat "$work/status-json.rc")" = "1" ] || fail "status --json rc"
+                jq -e '. == {schemaVersion: 1, package: "dsh-codex", version: "0.3.2", status: "signed-out"}' \
+                  "$work/status-json.out" > /dev/null \
+                  || fail "status --json exact document"
+                grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find package|ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL|NETWORK_FORBIDDEN' "$work/status-json.out" "$work/status-json.err" \
+                  && fail "status --json hit import/pnpm/network error, not signed-out"
+                pass "status --json rc1 exact signed-out document"
+                # doctor rc1 here is the COMPATIBILITY mismatch
+                # (dsh-llm/dsh-llm-pi-ai supported rc.1 vs installed rc.2),
+                # NOT the missing credential: a missing file alone is not a
+                # doctor failure. Assert the truthful report, never a fake
+                # compatible success; compaction is not exercised at all.
+                run_bin doctor-json doctor --json
+                [ "$(cat "$work/doctor-json.rc")" = "1" ] || fail "doctor --json rc"
+                jq -e '.credentialFile.state == "missing"' "$work/doctor-json.out" > /dev/null \
+                  || fail "doctor credential state"
+                jq -e '.compatibility.status == "incompatible"' "$work/doctor-json.out" > /dev/null \
+                  || fail "doctor compatibility status (must stay incompatible)"
+                jq -e '.compatibility.packages."@deepseek-ai/dsh-llm" == {supported: "0.2.0-rc.1", installed: "0.2.0-rc.2", status: "incompatible"}' \
+                  "$work/doctor-json.out" > /dev/null \
+                  || fail "doctor dsh-llm mismatch row"
+                jq -e '.compatibility.packages."@deepseek-ai/dsh-llm-pi-ai" == {supported: "0.2.0-rc.1", installed: "0.2.0-rc.2", status: "incompatible"}' \
+                  "$work/doctor-json.out" > /dev/null \
+                  || fail "doctor dsh-llm-pi-ai mismatch row"
+                jq -e '.compatibility.packages."@earendil-works/pi-ai" == {supported: "0.85.1", installed: "0.85.1", status: "compatible"}' \
+                  "$work/doctor-json.out" > /dev/null \
+                  || fail "doctor pi-ai row"
+                pass "doctor --json rc1 truthful incompatibility report"
+                test ! -e "$HOME/.dsh" || fail "bin runs created .dsh in fresh HOME"
+                pass "bin/index create no .dsh under fresh HOME"
+
+                # --- packaged `dsh plugin exec` (genuine managed-profile path) ---
+                # The managed profile is resolved under HOME/.dsh; the wrapper
+                # supplies private pnpm. Its generated bin shim also needs sed.
+                # A signed-out status returns rc1 and the exact JSON document,
+                # with the CLI's normal nonzero-command diagnostic on stderr.
+                execHome="$work/exec-home"
+                mkdir -p "$execHome/.dsh/profiles"
+                cp -a ${artifact} "$execHome/.dsh/profiles/codex"
+                chmod -R u+w "$execHome/.dsh/profiles/codex"
+                if env -i PATH=${pkgs.nodejs}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:/usr/bin:/bin HOME="$execHome" \
+                  XDG_DATA_HOME="$execHome/.local/share" XDG_STATE_HOME="$execHome/.local/state" \
+                  XDG_CONFIG_HOME="$execHome/.config" XDG_CACHE_HOME="$execHome/.cache" \
+                  NODE_OPTIONS="--require $guard" \
+                  ${self.packages.${system}.dsh}/bin/dsh plugin --profile codex exec dsh-codex status --json \
+                  > "$work/exec.out" 2> "$work/exec.err"; then
+                  fail "dsh plugin exec unexpectedly rc0 (signed-out status is rc1)"
+                else
+                  [ "$?" = "1" ] || fail "exec rc is not the signed-out rc1"
+                fi
+                grep -q 'Already up to date' "$work/exec.out" \
+                  || fail "exec stdout lacks the private-pnpm up-to-date line"
+                grep -q 'using pnpm v' "$work/exec.out" \
+                  || fail "exec stdout lacks the private-pnpm signature"
+                grep -E '^\{"schemaVersion":1,"package":"dsh-codex","version":"0\.3\.2","status":"signed-out"\}$' "$work/exec.out" \
+                  > /dev/null || { echo "--- exec.out begin ---" >&2; cat "$work/exec.out" >&2; echo "--- exec.out end ---" >&2; echo "--- exec.err begin ---" >&2; cat "$work/exec.err" >&2; echo "--- exec.err end ---" >&2; fail "exec stdout lacks the exact signed-out document line"; }
+                grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find package|ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL|NETWORK_FORBIDDEN' "$work/exec.out" "$work/exec.err" \
+                  && fail "exec hit import/pnpm/network error, not signed-out"
+                grep -q 'dsh: plugin command failed; diagnostics:' "$work/exec.err" \
+                  || fail "exec stderr lacks the expected rc1 diagnostic line"
+                pass "dsh plugin exec rc1 exact signed-out via private pnpm"
+                # the SOURCE artifact is untouched (exec mutates only the copy)
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
+                  ${artifact}/package.json > /dev/null \
+                  || fail "source artifact mutated"
+                test -L ${artifact}/node_modules/dsh-codex || fail "source artifact link disturbed"
+                pass "source artifact immutable"
+
+                # --- actual profile boot (checker + packaged rc.2, port 0) ---
+                bootHome="$work/boot-home"
+                mkdir -p "$bootHome/profiles"
+                cp -a ${artifact} "$bootHome/profiles/codex"
+                chmod -R u+w "$bootHome/profiles/codex"
+                if ! env -i PATH=${pkgs.nodejs}/bin:/usr/bin:/bin HOME="$bootHome" \
+                  NODE_OPTIONS="--require $guard" \
+                  ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} codex "$bootHome" --port 0 --no-open \
+                  > "$work/boot.log" 2>&1; then
+                  cat "$work/boot.log" >&2
+                  fail "codex profile boot (module import was green; app boot must be too)"
+                fi
+                grep -q '^CHECK-OK$' "$work/boot.log" || fail "boot lacks CHECK-OK"
+                pass "codex profile boot CHECK-OK under guard"
+
+                mkdir -p "$out"
+                printf 'CODEX-ARTIFACT-OK %s\n' ${artifact} > "$out/marker"
+                cp "$work/status-json.out" "$work/doctor-json.out" "$work/boot.log" "$out/"
+              '';
+
+          # Spec-lock regression: evaluated validator-unit battery and
+          # actual ordered-profile/transitive-closure artifact checks.
+          profile-spec-lock = (import ./tests/spec-lock.nix { inherit pkgs; }).check;
 
           profile-boot-tui =
             pkgs.runCommand "dsh-profile-boot-tui-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
@@ -255,7 +450,7 @@
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \
-                  ${self.packages.${system}.dsh} web "$home" --port 0 \
+                  ${self.packages.${system}.dsh} web "$home" --port 0 --no-open \
                   > "$TMPDIR/check.log" 2>&1; then
                   cat "$TMPDIR/check.log" >&2
                   exit 1
@@ -314,7 +509,7 @@
                 if ${pkgs.nodejs}/bin/node --expose-internals \
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \
-                  ${self.packages.${system}.dsh} web-nobase "$home" --port 0 \
+                  ${self.packages.${system}.dsh} web-nobase "$home" --port 0 --no-open \
                   > "$TMPDIR/check.log" 2>&1; then
                   echo "profile-boot-web-nobase: expected fail-loud, got success" >&2
                   exit 1
