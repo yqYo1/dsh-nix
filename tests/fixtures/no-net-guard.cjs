@@ -4,8 +4,7 @@
 // NETWORK_FORBIDDEN error instead of touching the network.
 // Loaded via NODE_OPTIONS=--require <this file> so it applies to the
 // real application code without patching any application function.
-// Vendored from the completed dsh-codex-oracle packet's proven guard
-// (scratch/dsh-codex-oracle/guard/net-guard.cjs), with ONE documented
+// Vendored from the proven dsh-codex-oracle guard, with ONE documented
 // deviation below: loopback resolution passthrough. Everything else is
 // verbatim: fail-closed NETWORK_FORBIDDEN on any outbound attempt.
 function forbidden(where) {

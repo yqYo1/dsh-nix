@@ -22,10 +22,11 @@
 
 let
   version = "0.2.0-rc.2";
-  # rc.8+ embeds the source commit into client artifacts by shelling out to
-  # `git rev-parse HEAD`.  The nix build is a gitless tarball with no `git`
-  # in the environment, so we feed the pinned rev instead — the dsh build
-  # script honours DSH_CLIENT_COMMIT_HASH and skips the git call entirely.
+  # The dsh client build embeds the source commit into client artifacts by
+  # shelling out to `git rev-parse HEAD` (since dsh 0.1.0-rc.8).  The nix
+  # build is a gitless tarball with no `git` in the environment, so we feed
+  # the pinned rev instead — the dsh build script honours
+  # DSH_CLIENT_COMMIT_HASH and skips the git call entirely.
   dshCommitHash = if src ? rev
     then src.rev
     else throw "dsh.nix: source has no .rev to embed as DSH_CLIENT_COMMIT_HASH";

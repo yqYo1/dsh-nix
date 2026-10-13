@@ -2,7 +2,7 @@
 # home-manager options and assert composition, activation content, and the
 # install-exactly contract. Run: nix-instantiate --eval --strict --json
 #   tests/home-module.nix --arg pkgs 'import <nixpkgs> {}'
-# (or via nix develop -c; see tests/hm-activation-contract.sh)
+# (or via the root flake check: nix build .#checks.<system>.home-module)
 { pkgs }:
 
 let
@@ -40,9 +40,9 @@ let
           };
           # Eval-only spec profile: proves the module accepts a
           # lock-pinned spec composition (specsLock + specsHash thread
-          # through to the declaration). Never built here: the FOD hash
-          # stays discovery-blank until the parent pins it, and this
-          # gate is evaluation-only (nix-instantiate --eval, no builds).
+          # through to the declaration). Never built here: this gate is
+          # evaluation-only (nix-instantiate --eval, no builds), so the
+          # FOD hash stays discovery-blank.
           profiles.agent-spec = {
             plugins = [ "dsh-codex@0.3.2" ];
             userPatches = [ ];
