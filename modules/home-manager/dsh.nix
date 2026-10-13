@@ -50,16 +50,16 @@ let
       specsHash = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "spec plugin 成果物を検証する固定出力 hash。依存解決の固定には specsLock も指定します。";
+        description = "Fixed-output hash verifying the built spec-plugin artifact. To pin dependency resolution as well, specify specsLock.";
       };
       specsLock = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         default = null;
         description = ''
-          spec plugin の依存解決を固定する、Git 管理の pnpm-lock.yaml。
-          指定時は root importer から manifest を復元し、frozen-lockfile で構築します。
-          宣言と一致しない lockfile は拒否し、未固定の依存解決へ fallback しません。
-          省略時の hash-only 設定は registry の範囲指定を build 時に再解決します。
+          A Git-managed pnpm-lock.yaml that pins spec-plugin dependency resolution.
+          When set, the manifest is reconstructed from the root importer and built with --frozen-lockfile.
+          Lockfiles that disagree with the declaration are rejected; there is no fallback to unpinned resolution.
+          Without it, hash-only setups re-resolve registry version ranges at build time.
         '';
       };
     };
