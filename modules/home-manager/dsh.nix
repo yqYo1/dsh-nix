@@ -34,7 +34,8 @@ let
         description = ''
           Ordered plugin list. Each entry is one of: an in-box bundle name
           (@deepseek-ai/dsh-*), a pnpm spec string (resolved at build time;
-          pin with specsHash), or a Nix package/path.
+          pin with specsLock/specsHash), a Nix package (a user-declared
+          derivation such as pkgs.buildNpmPackage), or a local plugin path.
         '';
       };
       userPatchesFile = lib.mkOption {

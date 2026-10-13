@@ -11,7 +11,8 @@
 # Exposes: .check (positive gate), .artifact / .profile / .userPkg, plus
 # separately-buildable expected-failure derivations (NOT checks):
 #   .negativeMissingArtifact   derivation with no package.json anywhere —
-#                              must keep failing loud after the core patch.
+#                              must keep failing loud with the root
+#                              resolver in place.
 #   .negativeCollisionArtifact  the same raw derivation twice — must keep
 #                              failing loud on the duplicate packageName.
 #

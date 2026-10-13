@@ -717,7 +717,7 @@ let
       mkdir -p $out/bin
       {
         echo "dsh HM real-activation regression: passed"
-        echo "shims: sandbox-only Nix CLI shims (nixShims: nix-build/nix-env/nix/nix-store --add-root); real-host proof is the parent-run driver0 harness (scripts/hm-e2e.sh + tests/hm-host.nix), not this gate"
+        echo "shims: sandbox-only Nix CLI shims (nixShims: nix-build/nix-env/nix/nix-store --add-root); real-host proof is the driver-0 harness (scripts/hm-e2e.sh + tests/hm-host.nix), not this gate"
         echo "gen1: $gen1act"
         echo "gen2: $gen2act"
         echo "gen3: $gen3act"

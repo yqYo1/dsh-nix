@@ -16,8 +16,8 @@
 #      owner/installer callback boundary, and no such claim is made
 #      here. Real sequencing is proven only by the builder legs (C) on
 #      real FOD/profile outputs.
-#   C. builder (needs pinned FOD hashes; the parent realizes after
-#      pinning specsHash): real FOD + profile outputs for the synthetic
+#   C. builder (pinned FOD hashes; realized when the check builds):
+#      real FOD + profile outputs for the synthetic
 #      ordered fixtures and tui-spec — ordered direct names, exact
 #      layers, no transitive/auto-peer leakage at the profile top, lock
 #      bytes retained, stable contextual specs, no enclosing-source path
