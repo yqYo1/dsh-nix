@@ -1,41 +1,41 @@
 # dsh-nix
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) を Nix で構築し、profile と Home Manager の設定を宣言的に管理します。
-DSH のソースは flake input で固定し、現在の package は `0.2.0-rc.2` です。
+Build [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) with Nix and manage profiles and Home Manager configuration declaratively.
+The DSH source is pinned as a flake input; the current package is `0.2.0-rc.2`.
 
-- **`pkgs.dsh`**: pnpm monorepo から構築する CLI package。
-- **profile packager**: plugin の依存解決と profile の構成を build 時に行います。
-- **`programs.dsh`**: `~/.dsh` 内の profile 構成を管理する Home Manager module。session・設定・credential などの利用者データとは管理範囲を分離します。
+- **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
+- **profile packager**: resolves plugin dependencies and composes profiles at build time.
+- **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
 
-## plugin の構成
+## Plugin composition
 
-profile の `plugins` には、次の形式を宣言順に混在させられます。
+Profile `plugins` accept the following forms, mixed in declaration order:
 
-- **in-box bundle**: `"@deepseek-ai/dsh-base"` などの名前。実行する DSH package から解決します。
-- **pnpm spec**: `"dsh-codex@0.3.2"` や `"github:someone/plugin"`。build 時に transitive／peer dependency を含む pnpm graph を構築します。
-- **Nix package**: 利用者が宣言した `pkgs.buildNpmPackage { ... }` などの derivation。構築済み plugin の依存 closure を保持したまま profile にリンクします。
-- **Nix path**: `./my-plugin` など、直下に `package.json` がある構築済み plugin directory。必要な runtime dependency もその成果物に含めます。
+- **in-box bundle**: a name such as `"@deepseek-ai/dsh-base"`, resolved from the DSH package being run.
+- **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
+- **Nix package**: a user-declared derivation such as `pkgs.buildNpmPackage { ... }`; linked into the profile with its built dependency closure intact.
+- **Nix path**: a prebuilt plugin directory with `package.json` at its root, such as `./my-plugin`; required runtime dependencies must be contained in the artifact.
 
-各 package の `dsh.bundle.patch` 宣言から layer を登録します。
-`plugins` の宣言順が layer 順であり、pnpm manifest や lockfile の key 順には依存しません。
-spec の transitive／peer dependency は runtime graph に保持しますが、profile の直接 plugin や layer には昇格させません。
-scoped package は scope directory 内の package ごとにリンクするため、同じ scope の Nix plugin と共存できます。
-spec と Nix plugin の package 名が衝突した場合は build が失敗します。
+Layers are registered from each package's `dsh.bundle.patch` declaration.
+`plugins` declaration order is the layer order and does not depend on pnpm manifest or lockfile key order.
+Spec transitive/peer dependencies stay in the runtime graph and are never promoted to direct profile plugins or layers.
+Scoped packages are linked per package inside their scope directory, so they coexist with Nix plugins in the same scope.
+If a spec and a Nix plugin share a package name, the build fails.
 
-## 利用方法
+## Usage
 
-### overlay
+### Overlay
 
 ```nix
 imports = [ inputs.dsh-nix.nixosModules.default ];
-# または overlay を直接追加します。
+# Or add the overlay directly:
 nixpkgs.overlays = [ inputs.dsh-nix.overlays.default ];
 
 environment.systemPackages = [ pkgs.dsh ];
 ```
 
-Home Manager module の `package` は、overlay 適用時には `pkgs.dsh` を使い、それ以外は同梱の `pkgs/dsh.nix` で構築します。
-明示的に指定した `package` は、module が別の package に置き換えたり再包装したりしません。
+The Home Manager module's `package` uses `pkgs.dsh` when the overlay is applied, and otherwise builds the bundled `pkgs/dsh.nix`.
+An explicitly specified `package` is never replaced or rewrapped by the module.
 
 ### Home Manager
 
@@ -59,23 +59,23 @@ programs.dsh = {
       "dsh-codex@0.3.2"
     ];
     specsLock = ./custom-pnpm-lock.yaml;
-    specsHash = "sha256-..."; # 実 build が報告した hash を指定します。
+    specsHash = "sha256-..."; # use the hash reported by the real build
     userPatchesFile = ./patches.yml;
   };
   homePatchesFile = ./home-patches.yml;
-  # settings = { ... }; # ~/.dsh/settings.yaml が無い場合だけ初期値を書き込みます。
+  # settings = { ... }; # seeds ~/.dsh/settings.yaml only when it does not exist
 };
 ```
 
-activation は immutable profile を `~/.dsh/profiles/<name>` に展開し、stamp によって同一成果物の再展開を省略します。
-module が所有する profile の構成は更新・削除されますが、session・設定・credential や管理対象外の profile は保持します。
+Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical artifact via its stamp.
+Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved.
 
 ```sh
 dsh --profile headless "task"
 dsh --profile web # http://127.0.0.1:3080
 ```
 
-### 単独での build
+### Building standalone
 
 ```sh
 nix build --accept-flake-config .#dsh
@@ -83,20 +83,20 @@ nix build --accept-flake-config .#tui-spec
 nix eval --accept-flake-config .#profiles.tui-spec --json
 ```
 
-`default` package は `dsh` です。
-flake configuration を受け入れると、公開 binary cache `yqyo1.cachix.org` を利用できます。
-署名検証用の公開鍵は `flake.nix` に固定されており、download に token は不要です。
-GitHub Actions からの cache upload には repository secret `CACHIX_AUTH_TOKEN` を使用します。
+The `default` package is `dsh`.
+Accepting the flake configuration enables the public binary cache `yqyo1.cachix.org`.
+The public key for signature verification is pinned in `flake.nix`; downloads need no token.
+Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
 
-## ユーザー定義 npm package
+## User-declared npm packages
 
-`pkgs.buildNpmPackage` の derivation は、`plugins` に直接指定します。
-ソース、`package-lock.json`、`npmDepsHash` と build の設定は利用者の package 宣言で管理し、dsh-nix は完成した plugin を profile に構成します。
-Nix plugin だけを宣言する profile では、`specsLock`／`specsHash` は不要です。
-spec plugin と混在する場合は、spec 側の依存固定として従来どおり指定します。
+A `pkgs.buildNpmPackage` derivation is passed directly in `plugins`.
+The source, `package-lock.json`, `npmDepsHash`, and build settings are managed by the user's package declaration; dsh-nix composes the finished plugin into the profile.
+Profiles that declare only Nix plugins do not need `specsLock`/`specsHash`.
+When spec plugins are mixed in, specify them as before for the spec side's dependency pinning.
 
-以下は、前節の Home Manager module を import した設定に加える例です。
-`./my-plugin` は `package.json`、`package-lock.json`、`dsh.bundle.patch` が参照する patch と runtime のソースを含む npm project とします。
+The example below adds to the configuration importing the Home Manager module from the previous section.
+`./my-plugin` is an npm project containing `package.json`, `package-lock.json`, the patch referenced by `dsh.bundle.patch`, and the runtime source.
 
 ```nix
 { pkgs, ... }:
@@ -105,8 +105,8 @@ let
     pname = "my-plugin";
     version = "1.0.0";
     src = ./my-plugin;
-    npmDepsHash = pkgs.lib.fakeHash; # 初回 build の got: を取得して置き換えます。
-    dontNpmBuild = true; # コンパイル不要な plugin の例です。
+    npmDepsHash = pkgs.lib.fakeHash; # replace with the got: value from the first build
+    dontNpmBuild = true; # for plugins that need no compilation
   };
 in
 {
@@ -117,79 +117,79 @@ in
 }
 ```
 
-`src` には、利用者の flake で固定した source input も指定できます。
-初回 build が報告した `got:` の実 hash を `npmDepsHash` に指定し、同じ宣言を再 build して成功を確認します。
-コンパイルが必要な plugin は、`dontNpmBuild` を省略して必要な npm build script を実行します。
+`src` may also be a source input pinned in the user's flake.
+Put the real hash reported by the first build's `got:` into `npmDepsHash`, then rebuild the same declaration to confirm success.
+For plugins that need compilation, omit `dontNpmBuild` so the required npm build scripts run.
 
-plugin root は build 時に解決します。
-成果物の直下に `package.json` があればその directory を優先し、なければ `lib/node_modules/<name>/package.json`（scoped package を含む）の直接 package を探します。
-候補がゼロ件または複数件の場合は build が失敗します。
-package 名は derivation の `pname` ではなく、選択した `package.json` の `name` から読み取ります。
-plugin 内の `node_modules` は移動や flatten をせず保持するため、transitive dependency は plugin の既存構成から解決されます。
+The plugin root is resolved at build time.
+If the artifact has `package.json` at its top level, that directory is preferred; otherwise the direct package under `lib/node_modules/<name>/package.json` (including scoped packages) is searched.
+Zero or multiple candidates fail the build.
+The package name is read from the selected `package.json` `name`, not the derivation `pname`.
+The plugin's `node_modules` is preserved without moving or flattening, so transitive dependencies resolve from the plugin's existing layout.
 
-## spec plugin の依存固定
+## Pinning spec plugin dependencies
 
-`specsLock` には、対象の spec plugin だけを root importer (`.`) の直接依存として宣言した、pnpm 11 の `pnpm-lock.yaml` を指定します。
-余分な workspace importer は許可しません。
-version・integrity・peer dependency の組合せを記録した lockfile 自体を、設定とともに Git で管理してください。
-plugin の追加・更新時は、同じ Nix 管理の pnpm 11 環境で lockfile を更新します。
-ローカル `file:` spec の例と lockfile は `examples/profiles/tui-spec.nix` と `examples/profiles/tui-spec-pnpm-lock.yaml` にあります。
+`specsLock` takes a pnpm 11 `pnpm-lock.yaml` that declares only the target spec plugins as direct dependencies of the root importer (`.`).
+Extra workspace importers are not allowed.
+Manage the lockfile itself, recording version, integrity, and peer dependency combinations, in Git along with your configuration.
+When adding or updating plugins, update the lockfile in the same Nix-managed pnpm 11 environment.
+An example local `file:` spec and its lockfile live in `examples/profiles/tui-spec.nix` and `examples/profiles/tui-spec-pnpm-lock.yaml`.
 
-lockfile を指定した build は `--frozen-lockfile` で実行します。
-宣言との不一致、余分な直接依存、欠落した registry integrity などは失敗し、未固定の依存解決へ fallback しません。
-frozen install でも、cache に存在しない固定済み package の download は発生します。
+Builds with a lockfile run with `--frozen-lockfile`.
+Mismatches with the declaration, extra direct dependencies, and missing registry integrity fail; there is no fallback to unpinned resolution.
+Even a frozen install downloads pinned packages that are not in the cache.
 
-`specsHash` は依存解決の入力ではなく、構築した成果物を検証する hash です。
-lockfile 更新後は `specsHash = "";` で build し、Nix が実際に報告した `got:` を指定して再度 build します。
-完全な runtime graph を保持する本変更では成果物が変わるため、旧形式の hash は再取得が必要です。
+`specsHash` is not an input to dependency resolution; it verifies the built artifact.
+After updating the lockfile, build with `specsHash = "";` and then rebuild with the `got:` value Nix actually reported.
+Preserving the full runtime graph changes the artifact, so hashes from the previous format must be re-discovered.
 
-互換性のため `specsLock` を省略した hash-only 設定も利用できます。
-ただし registry の version range を再解決するため、同じ設定の cold build が異なる成果物になり得ます。
-再現可能な設定には `specsLock` と `specsHash` の両方を指定してください。
+For compatibility, hash-only setups that omit `specsLock` remain available.
+However, they re-resolve registry version ranges, so a cold build of the same configuration can produce a different artifact.
+For reproducible setups, specify both `specsLock` and `specsHash`.
 
-## 回帰検証
+## Regression verification
 
 ```sh
-# 公開 flake: profile 成果物・rc.2 boot・HM 非依存の検証
+# Public flake: profile artifacts, rc.2 boot, Home Manager-independent checks
 nix flake check --accept-flake-config --no-update-lock-file --no-write-lock-file
-# 専用 test flake: 固定した実 Home Manager での評価・sandbox activation
+# Dedicated test flake: evaluation and sandbox activation on the pinned real Home Manager
 nix flake check ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file
-# TUI の実起動・破棄確認
+# Real TUI startup and disposal
 nix develop --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/profile-smoke.sh
-# 実 daemon・driver 0 による profile install → activation → boot
+# profile install → activation → boot with the real daemon and driver 0
 nix develop ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh
 ```
 
-公開 flake は Home Manager に依存しません。
-HM を使用する回帰検証だけを `tests/` subflake に分離し、HM pin は `tests/flake.lock` のみで管理します。
-[catppuccin/nix の dev-flake](https://github.com/catppuccin/nix/blob/main/dev/flake.nix) と同様の分離です。
-相対 input (`path:../.`) を使用するため、Nix >= 2.26 が必要です。
-利用者側の Home Manager の選択や `homeManagerModules.dsh` の import 方法は変えません。
-公開 flake の input／lock を更新した場合は、`nix flake lock ./tests` も実行してテスト側の graph を同期してください。
-DSH updater は両 lock を同期した後、公開 checks・専用 tests checks・実 host E2E を実行します。
+The public flake does not depend on Home Manager.
+Only the regression checks that use HM are split into the `tests/` subflake, with the HM pin managed solely in `tests/flake.lock`.
+This mirrors the [catppuccin/nix dev-flake](https://github.com/catppuccin/nix/blob/main/dev/flake.nix) separation.
+Relative inputs (`path:../.`) require Nix >= 2.26.
+The user's Home Manager choice and how `homeManagerModules.dsh` is imported do not change.
+After updating the public flake's inputs/lock, also run `nix flake lock ./tests` to sync the test-side graph.
+The DSH updater syncs both locks and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
-- **validator／成果物**: 宣言順、固定した lock bytes、scope 内の共存、直接 plugin のみの投影、実 transitive import を検証します。
-- **Codex runtime**: fresh HOME/XDG と通信拒否 guard を使用し、実 CLI、package 付属の private pnpm を使用する `dsh plugin exec`、実 profile の boot/dispose を検証します。
-- **ユーザー定義 npm package**：本物の `buildNpmPackage` の derivation を直接宣言し、標準出力 root の選択、曖昧な入力の拒否、依存 import、CLI、rc.2 の boot と lifecycle を検証します。
-- **HM sandbox**: 実 activation program を複数世代で実行し、spec profile とユーザー定義 npm package の展開、実 import、削除、再実行、利用者データの保持、symlink の拒否を検証します。sandbox 内の Nix CLI は shim であり、実 host の package install の証明とは区別します。
-- **HM host**: scratch に HOME/XDG／Nix state を隔離し、実 daemon と driver 0 で指定 package を install し、展開した npm plugin の実 import、CLI、rc.2 boot を検証します。実利用者の profile、gcroot、app data が変わらないことを外部 guard で確認します。
+- **validator/artifacts**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
+- **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
+- **User-declared npm packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
+- **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and user-declared npm packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
+- **HM host**: isolates HOME/XDG/Nix state in scratch and installs the given packages with the real daemon and driver 0, verifying real imports of the materialised npm plugin, its CLI, and rc.2 boot. External guards confirm the real user's profiles, gcroots, and app data remain unchanged.
 
-`scripts/check-profile.mjs` は、固定した rc.2 の `loadProfile` → `createRuntimeResolution` → `readProfilePatches` → `boot` の経路を使用します。
-DSH 自身の startup audit が失敗した場合や boot 中に非ゼロの終了要求が発生した場合は、`CHECK-OK` を出さず失敗します。
-boot 後は tree を dispose し、launcher readiness は確定しません。
-この検証は認証済み generation や native compaction の動作証明ではありません。
+`scripts/check-profile.mjs` uses the pinned rc.2 path `loadProfile` → `createRuntimeResolution` → `readProfilePatches` → `boot`.
+It fails without emitting `CHECK-OK` if DSH's own startup audit fails or a non-zero exit is requested during boot.
+After boot the tree is disposed; launcher readiness is not asserted.
+This verification is not proof of authenticated generation or native compaction.
 
-`dsh-codex@0.3.2` の `doctor` は、対応 DSH API を `0.2.0-rc.1` と厳密比較するため、rc.2 に対して診断上の incompatibility と終了コード 1 を返します。
-回帰検証ではこの診断をそのまま確認し、package metadata を偽装しません。
-未ログイン時の `status` の終了コード 1 も、正確な `signed-out` 応答と import／通信の失敗を区別して検証します。
-実際の agent 実行には credential の設定が必要です。
+`dsh-codex@0.3.2`'s `doctor` strictly compares the supported DSH API against `0.2.0-rc.1` and therefore reports a diagnostic incompatibility with exit code 1 against rc.2.
+Regression checks confirm this diagnostic as-is and never spoof package metadata.
+The `status` exit code 1 when signed out is likewise verified by distinguishing the exact `signed-out` response from import/network failures.
+Running an actual agent requires credentials.
 
-## 注意点
+## Notes
 
-- module の既定 package を構築する nixpkgs は、`fetchPnpmDeps`・`pnpmConfigHook`・pnpm 11 を提供する必要があります。
-- upstream の標準 surface は `web` と `headless` です。TUI は plugin として構成できます。
-- `specsLock`／`specsHash` の更新や consumer の activation は、consumer 側の管理作業です。この repository のテストは consumer dotfiles を変更しません。
+- The nixpkgs that builds the module's default package must provide `fetchPnpmDeps`, `pnpmConfigHook`, and pnpm 11.
+- Upstream's standard surfaces are `web` and `headless`. The TUI is composed as a plugin.
+- Updating `specsLock`/`specsHash` and activating consumers are consumer-side management tasks. This repository's tests do not modify consumer dotfiles.
 
-## ライセンス
+## License
 
 MIT

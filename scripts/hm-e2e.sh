@@ -236,7 +236,8 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
-# --- pinned sources + eval gate (no build: package hash may be placeholder)
+# --- pinned sources + eval gate (evaluation only; the real generation
+# build, profile install, and activation follow below)
 # All pins resolve through the tests subflake, so the root flake stays Home
 # Manager-independent. Reject lock updates and never write the lock during
 # verification. Address the whole Git repository with dir=tests, so the
