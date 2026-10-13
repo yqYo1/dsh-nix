@@ -1,9 +1,12 @@
 # Extract the Home Manager module's activation script and artifact paths for
 # a realistic end-to-end run: evaluate the module with stubs, print
-# activation to stdout and artifact store paths. Not part of flake checks.
+# activation to stdout and artifact store paths. Not part of flake checks,
+# and not wired into any current gate: the automated multi-generation
+# regression lives in tests/hm-real.nix (run via
+# tests/hm-activation-contract.sh).
 #
-# Optional args drive multi-generation scenarios (config refresh, plugin
-# removal, profile removal) for tests/hm-activation-contract.sh:
+# Optional args accept multi-generation scenarios (config refresh, plugin
+# removal, profile removal):
 #   profiles  attrset of profile declarations; each value accepts
 #             { plugins, userPatches ?, userPatchesFile ?, specsHash ?, specsLock ? }
 #   settings  seed-only settings.yaml content

@@ -434,7 +434,7 @@
               '';
 
           # Build-time fail-loud: boot each in-box profile with dsh's own
-          # boot() (which runs assertEntriesActivated) and dispose.  A
+          # boot() (which runs auditStartupEntries) and dispose.  A
           # profile that would fail at runtime — missing services, failed
           # activation — fails `nix build` here instead.
           profile-boot-web =

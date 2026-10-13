@@ -130,7 +130,7 @@ let
     if builtins.isString activationValue then activationValue else activationValue.data;
 
   # Expected immutable profile artifact, as a store-path STRING only
-  # (toString never realises: safe while the package hash is a placeholder).
+  # (toString never realises: no build happens in this evaluation).
   expectedAgentArtifact = toString (profilesLib.buildProfileBundle {
     inherit pkgs;
     profile = profilesLib.mkProfileBundle ({

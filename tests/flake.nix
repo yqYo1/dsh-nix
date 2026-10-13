@@ -41,9 +41,9 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          # NOTE: the test file itself (tests/hm-real.nix) is unchanged and
-          # is reached through the parent source tree (dsh-nix.outPath), not
-          # a literal ./hm-real.nix: a subflake source tree contains only
+          # NOTE: the test file (tests/hm-real.nix) is reached through the
+          # parent source tree (dsh-nix.outPath), not a literal
+          # ./hm-real.nix: a subflake source tree contains only
           # tests/, so the test's own ../lib, ../modules and ../examples
           # imports would escape the flake boundary under pure evaluation.
           # Importing the identical file via the path input keeps every
