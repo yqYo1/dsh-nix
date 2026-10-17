@@ -5,9 +5,10 @@
 #   - Retargets ONLY the `dsh` flake input in the ROOT flake.nix to a released
 #     deepseek-harness tag (default: latest `dsh-v*`), re-locks the root
 #     (`nix flake lock --update-input dsh`, immutable rev + narHash), then
-#     re-syncs the tests subflake graph (`nix flake lock ./tests`) WITHOUT
-#     bumping Home Manager or any unrelated input (never a wholesale
-#     `nix flake update`). Verifies the evaluated Nix package `version`
+#     re-syncs the tests subflake graph (`nix flake lock ./tests
+#     --update-input dsh-nix`, since a plain lock cannot see the moved path
+#     input) WITHOUT bumping Home Manager or any unrelated input (never a
+#     wholesale `nix flake update`). Verifies the evaluated Nix package `version`
 #     equals the upstream tag's CLI version (fail closed with an owner
 #     pointer when stale), then gates on a real `nix build` of the dsh
 #     package, root `nix flake check`, tests `nix flake check`, and the
@@ -123,9 +124,11 @@ fi
 nix flake lock --update-input dsh
 
 # Re-sync the tests subflake graph against the retargeted root WITHOUT
-# bumping Home Manager or any unrelated input: a plain lock only
-# re-resolves what moved (never `nix flake update` here).
-nix flake lock ./tests
+# bumping Home Manager or any unrelated input (never `nix flake update`
+# here). The moved input must be named explicitly: the tests flake's
+# `path:../.` input records no narHash, so a plain lock cannot observe
+# that the parent graph changed and leaves the child pins stale.
+nix flake lock ./tests --update-input dsh-nix
 
 # The lock must resolve the tag to the exact immutable commit.
 LOCKED_REV=$(nix flake metadata --no-update-lock-file --no-write-lock-file --json | jq -r '.locks.nodes.dsh.locked.rev')
