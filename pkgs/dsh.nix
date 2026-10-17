@@ -21,7 +21,7 @@
 }:
 
 let
-  version = "0.2.0-rc.2";
+  version = "0.2.1-rc.1";
   # The dsh client build embeds the source commit into client artifacts by
   # shelling out to `git rev-parse HEAD` (since dsh 0.1.0-rc.8).  The nix
   # build is a gitless tarball with no `git` in the environment, so we feed
@@ -34,7 +34,7 @@ let
     pname = "deepseek-harness";
     inherit version src;
     fetcherVersion = 4;
-    hash = "sha256-26wDKJYpsyz55zCe9qqn0vVbs+JI/Wi3c4EXYbffDNk=";
+    hash = "sha256-O55HfLkY1ohVDga+FzTKCD5fxK/eWQbaHJHURgaLCRc=";
   };
 in
 stdenv.mkDerivation {
@@ -75,7 +75,8 @@ stdenv.mkDerivation {
       "$out/node_modules/.pnpm/node_modules/@deepseek-ai/website" \
       "$out/node_modules/.cache"
     mkdir -p "$out/bin"
-    # rc.2 Node builtin compat: ship the narrowly-triggered
+    # Node builtin compat (introduced with rc.2): ship the
+    # narrowly-triggered
     # `--expose-internals` fallback preload next to the CLI and load it
     # before the entrypoint. Paths derive from $out at build time.
     install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"

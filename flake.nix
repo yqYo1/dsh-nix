@@ -30,7 +30,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.systems.url = "github:nix-systems/default";
   inputs.dsh = {
-    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.0-rc.2";
+    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.1-rc.1";
     flake = false;
   };
 
@@ -469,7 +469,7 @@
                 mkdir -p "$home/profiles"
                 cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
                 chmod -R u+w "$home/profiles/headless"
-                # rc.2 starts the one-shot runner during apply, without
+                # rc.1 starts the one-shot runner during apply, without
                 # appReady. This boot-only fixture disables that row and
                 # parses help instead of starting a model/application task.
                 # It covers base + headless startup, NOT runner execution.

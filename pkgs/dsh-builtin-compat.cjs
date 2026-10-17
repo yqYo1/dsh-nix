@@ -1,6 +1,6 @@
 'use strict';
 
-// dsh Nix Node builtin compatibility preload (rc.2, narrowly triggered).
+// dsh Nix Node builtin compatibility preload (since rc.2, narrowly triggered).
 //
 // Background: on the Nix Node 22/24 closures shipped here, the bundled
 // `node-addon-require-builtin@0.1.6` native backend has no working ABI path,

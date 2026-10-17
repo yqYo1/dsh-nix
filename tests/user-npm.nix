@@ -176,7 +176,7 @@ let
       test ! -e "$HOME/.dsh" || fail "wrapper runs created .dsh in fresh HOME"
       pass "wrapper runs create no .dsh under fresh HOME"
 
-      # --- actual profile boot (checker + packaged rc.2, port 0) ---
+      # --- actual profile boot (checker + packaged rc.1, port 0) ---
       bootHome="$work/boot-home"
       mkdir -p "$bootHome/profiles"
       cp -a ${artifact} "$bootHome/profiles/user-npm"
