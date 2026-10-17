@@ -19,7 +19,7 @@
 #   - explicit in-box layer order is exact, not sorted
 #   - userPatchesFile wins over inline userPatches, payload preserved verbatim
 #   - inline userPatches JSON payload preserved when no file is set
-#   - explicit patchPath projects a real rc.2-consumable layer: projected
+#   - explicit patchPath projects a real rc.1-consumable layer: projected
 #     node_modules manifest declares exactly the selected patch, patch bytes
 #     exist beside it in valid Cordis insert/id syntax, identity preserved
 #   - eval-time duplicate packageNames still throw; deferred nulls do not
@@ -54,7 +54,7 @@ let
 
   # Raw plain derivation: package.json + payload, NO bundle.patch declaration.
   # It still carries the selectable patch FILE so an explicit patchPath can
-  # project a real rc.2-consumable layer from it.
+  # project a real rc.1-consumable layer from it.
   plainDrv = pkgs.runCommand "test-plain-dep" { } ''
     mkdir -p "$out"
     cat > "$out/package.json" <<'EOF'
@@ -240,10 +240,10 @@ assert deferredEval.success;
       jq -e '.[0].insert[0].id == "test-inline-row"' "$inline/cordis.patch.yml" > /dev/null
       test "$(jq -c '.dsh.profile.bundles' "$inline/package.json")" = '["@test/local-bundle"]'
 
-      # --- explicit patchPath forces layer membership AND real rc.2 content ---
+      # --- explicit patchPath forces layer membership AND real rc.1 content ---
       test "$(jq -c '.dsh.profile.bundles' "$forced/package.json")" = '["@test/plain-dep"]'
       jq -e '.dependencies | has("@test/plain-dep")' "$forced/package.json" > /dev/null
-      # projected manifest declares exactly the selected patch (rc.2 reads this)
+      # projected manifest declares exactly the selected patch (rc.1 reads this)
       test "$(jq -r '.dsh.bundle.patch' "$forced/node_modules/@test/plain-dep/package.json")" = "cordis.patch.yml"
       # manifest identity/payload preserved through the projection
       test "$(jq -r '.name' "$forced/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"

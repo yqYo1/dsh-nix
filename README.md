@@ -1,7 +1,7 @@
 # dsh-nix
 
 Build [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) with Nix and manage profiles and Home Manager configuration declaratively.
-The DSH source is pinned as a flake input; the current package is `0.2.0-rc.2`.
+The DSH source is pinned as a flake input; the current package is `0.2.1-rc.1`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile packager**: resolves plugin dependencies and composes profiles at build time.
