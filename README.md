@@ -165,7 +165,7 @@ Only the regression checks that use HM are split into the `tests/` subflake, wit
 This mirrors the [catppuccin/nix dev-flake](https://github.com/catppuccin/nix/blob/main/dev/flake.nix) separation.
 Relative inputs (`path:../.`) require Nix >= 2.26.
 The user's Home Manager choice and how `homeManagerModules.dsh` is imported do not change.
-After updating the public flake's inputs/lock, also run `nix flake lock ./tests` to sync the test-side graph.
+After updating the public flake's inputs/lock, also run `nix flake lock ./tests --update-input dsh-nix` to sync the test-side graph (a plain lock cannot see the moved `path:../.` input).
 The DSH updater syncs both locks and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
 - **validator/artifacts**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
