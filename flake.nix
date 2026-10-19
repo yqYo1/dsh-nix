@@ -620,6 +620,61 @@
                 touch "$out"
               '';
 
+          # Official kernel plugins mount without packaging: a patch row in
+          # the profile's own layer names the package and the name resolves
+          # from the dsh installation (no bundle, no Nix package).  base +
+          # web-app + one official tool plugin (str-replace-editor, not part
+          # of any shipped bundle) must compose the row and boot CHECK-OK.
+          profile-official-plugin =
+            let
+              profile = profilesLib.mkProfileBundle {
+                name = "official-plugin";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                ];
+                userPatches = [
+                  {
+                    insert = [
+                      {
+                        id = "str-replace-editor";
+                        name = "@deepseek-ai/dsh-tool-str-replace-editor";
+                      }
+                    ];
+                  }
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-official-plugin-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/official-plugin"
+                chmod -R u+w "$home/profiles/official-plugin"
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]' \
+                  "$home/profiles/official-plugin/package.json" >/dev/null
+                grep -q 'str-replace-editor' "$home/profiles/official-plugin/cordis.patch.yml"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} official-plugin "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
           # Counterexample: web-app without base must fail the boot check
           # with dsh's own fail-loud (pending services), proving the check
           # catches the composition error at build time.

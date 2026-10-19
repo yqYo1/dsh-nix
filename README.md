@@ -22,6 +22,21 @@ Spec transitive/peer dependencies stay in the runtime graph and are never promot
 Scoped packages are linked per package inside their scope directory, so they coexist with Nix plugins in the same scope.
 If a spec and a Nix plugin share a package name, the build fails.
 
+Official *kernel plugins* that ship without a bundle (e.g. `@deepseek-ai/dsh-tool-str-replace-editor`) are mounted by patch rows in the profile's own layer; their package names resolve from the dsh installation, so nothing is packaged:
+
+```nix
+programs.dsh.profiles.web = {
+  plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
+  userPatches = [
+    {
+      insert = [
+        { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
+      ];
+    }
+  ];
+};
+```
+
 ## Usage
 
 ### Overlay
