@@ -7,21 +7,21 @@
  * runtime fail-loud, surfaced at `nix build` time.  Scope is boot+dispose
  * only: the check never commits launcher readiness and never starts an
  * application task itself, but it cannot prove no plugin scheduled one —
- * rc.1 headless starts its run during apply without using appReady
+ * rc.2 headless starts its run during apply without using appReady
  * (headless/src/index.ts), so an active plugin may have scheduled
  * fire-and-forget work that outlives the tree.  A nonzero appExit requested
  * during boot is recorded and fails the check (no CHECK-OK); it is never
  * waived to keep the check green.
  *
  * The sequence mirrors the primary source `apps/cli/src/profile-boot.ts`
- * at pinned dsh-v0.2.1-rc.1 (prepareProfile → composeProfile → runProfile):
+ * at pinned dsh-v0.2.1-rc.2 (prepareProfile → composeProfile → runProfile):
  *   - loadProfile() resolves the profile against the scratch DSH_HOME, then
  *     the profile root cordis.yml is rewritten to the empty entry list
  *     (the Loader anchors baseUrl at it; a Loader write-back must never bake
  *     composed rows into it);
  *   - createRuntimeResolution({ installAnchor, profile }) computes the
  *     immutable runtime resolution before any plugin imports — there is no
- *     heal step in rc.1, and resolution failure must fail loud (no fallback);
+ *     heal step in rc.2, and resolution failure must fail loud (no fallback);
  *   - readProfilePatches() stacks bundle layers in dsh.profile.bundles
  *     order, the profile's own user layer, the home-level
  *     `$DSH_HOME/cordis.patch.yml` layer, --patch overlays (none in this
