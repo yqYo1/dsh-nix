@@ -38,7 +38,7 @@
   inputs.nixpkgs-fetch.url = "github:NixOS/nixpkgs/a7868a727837f3c09cee2ce0ca671c76b1589fed";
   inputs.systems.url = "github:nix-systems/default";
   inputs.dsh = {
-    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.1-rc.1";
+    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.1-rc.2";
     flake = false;
   };
 
