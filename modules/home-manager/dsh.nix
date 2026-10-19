@@ -17,9 +17,13 @@
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
 #
-# Requires the user's nixpkgs to provide fetchPnpmDeps + pnpmConfigHook when
-# `package` defaults to the callPackage-built dsh.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc }:
+# `package` defaults to `pkgs.dsh` (overlay) or the bundled callPackage build.
+# The bundled build threads `fetchPnpmDepsFor` (system -> fetchPnpmDeps,
+# supplied by the flake from the pinned `nixpkgs-fetch` input) so the
+# pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
+# the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
+# main build.
+{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null) }:
 
 { config, lib, pkgs, ... }:
 
@@ -207,8 +211,14 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.dsh or (pkgs.callPackage ../../pkgs/dsh.nix { src = dshSrc; });
-      defaultText = "pkgs.dsh (via inputs.dsh-nix.overlays.default) or callPackage fallback";
+      default =
+        let
+          fetcher = fetchPnpmDepsFor pkgs.stdenv.hostPlatform.system;
+        in
+        pkgs.dsh or (pkgs.callPackage ../../pkgs/dsh.nix (
+          { src = dshSrc; } // lib.optionalAttrs (fetcher != null) { fetchPnpmDeps = fetcher; }
+        ));
+      defaultText = "pkgs.dsh (via inputs.dsh-nix.overlays.default) or the bundled callPackage build with the pinned pnpm-deps fetch support";
       description = "The dsh CLI package to install.";
     };
 

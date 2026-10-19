@@ -1,7 +1,11 @@
 # The DeepSeek Harness CLI as a Nix package: pnpm monorepo build of the
 # deepseek-harness repo, producing `bin/dsh`.
 #
-# - `fetchPnpmDeps` materialises the pnpm store from pnpm-lock.yaml.
+# - `fetchPnpmDeps` materialises the pnpm store from pnpm-lock.yaml.  Call
+#   sites override it with the pinned fetch support (flake input
+#   `nixpkgs-fetch`): the output hash below is bound to the fetch script
+#   text, so this fetch must not be instantiated from a consumer-overridden
+#   nixpkgs.
 # - `pnpmConfigHook` points the offline install at that store.
 # - The HMR service requires Node internals access, so the wrapper launches
 #   node with `--expose-internals` (dsh itself never sets this flag).
@@ -88,6 +92,13 @@ stdenv.mkDerivation {
       --append-flags ""
     runHook postInstall
   '';
+
+  # Exposed so consumers and tests can target the deps FOD directly (e.g.
+  # `nix build .#dsh.pnpmDeps --rebuild` to re-validate the pinned hash
+  # against a fresh fetch).
+  passthru = {
+    inherit pnpmDeps;
+  };
 
   meta = {
     description = "DeepSeek Harness CLI (dsh)";

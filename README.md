@@ -186,7 +186,7 @@ Running an actual agent requires credentials.
 
 ## Notes
 
-- The nixpkgs that builds the module's default package must provide `fetchPnpmDeps`, `pnpmConfigHook`, and pnpm 11.
+- The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.
 - Upstream's standard surfaces are `web` and `headless`. The TUI is composed as a plugin.
 - Updating `specsLock`/`specsHash` and activating consumers are consumer-side management tasks. This repository's tests do not modify consumer dotfiles.
 
