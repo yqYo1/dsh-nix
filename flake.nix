@@ -62,6 +62,21 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
+      officialPlugins = import ./lib/official-plugins.nix { inherit lib; };
+      # Pinned builds of the official ON-DEMAND bundles (published npm
+      # releases): profiles may name them exactly like shipped bundles.
+      officialPluginsFor = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        lib.genAttrs officialPlugins.names (name:
+          pkgs.callPackage ./pkgs/official-plugin.nix (
+            {
+              npmName = name;
+              fetchPnpmDeps = fetchPnpmDepsFor system;
+            }
+            // officialPlugins.pins.${name}
+          ));
       # The official bundles shipped by the dsh installation: every package
       # under `packages/bundle/` and `packages/experimental/` that declares
       # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
@@ -117,7 +132,7 @@
         pluginsLib = plugins;
         inherit profilesLib inBoxNames;
         dshSrc = dsh;
-        inherit fetchPnpmDepsFor;
+        inherit fetchPnpmDepsFor officialPluginsFor;
       };
 
       # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
@@ -663,6 +678,55 @@
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \
                   ${self.packages.${system}.dsh} official-plugin "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Official ON-DEMAND bundles by name: dsh-subagent-codex and
+          # dsh-subagent-claude-code are not in the installation, so dsh-nix
+          # builds them from their pinned npm releases (official/ pins).  The
+          # profile links them like Nix-package plugins and boots with no
+          # skipped bundle.
+          profile-official-on-demand =
+            let
+              profile = profilesLib.mkProfileBundle {
+                name = "official-on-demand";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                  "@deepseek-ai/dsh-subagent-codex"
+                  "@deepseek-ai/dsh-subagent-claude-code"
+                ];
+                officialPlugins = officialPluginsFor system;
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-official-on-demand-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/official-on-demand"
+                chmod -R u+w "$home/profiles/official-on-demand"
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-subagent-codex", "@deepseek-ai/dsh-subagent-claude-code"]' \
+                  "$home/profiles/official-on-demand/package.json" >/dev/null
+                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/package.json"
+                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/package.json"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} official-on-demand "$home" --port 0 --no-open \
                   > "$TMPDIR/check.log" 2>&1; then
                   cat "$TMPDIR/check.log" >&2
                   exit 1

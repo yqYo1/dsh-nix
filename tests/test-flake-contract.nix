@@ -29,6 +29,7 @@ let
     "profile-boot-web"
     "profile-boot-web-nobase"
     "profile-codex"
+    "profile-official-on-demand"
     "profile-official-plugin"
     "profile-regression"
     "profile-spec-lock"
