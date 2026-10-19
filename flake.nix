@@ -232,10 +232,14 @@
               '';
 
           # Official-bundle drift guard: the accepted by-name set must equal
-          # every shipped bundle declaration in the pinned dsh source
-          # (`packages/bundle/*` and `packages/experimental/*` with
-          # `dsh.bundle.patch`).  Subagent bundles (`packages/subagent/*`)
-          # are on-demand npm packages, not shipped bundles — excluded.
+          # every bundle the installation ships.  The rule mirrors the
+          # plugin-manager's own `shipped` computation: a package is an
+          # installation-provided bundle iff its name is a key of the
+          # installation package.json `dependencies` and its manifest
+          # declares `dsh.bundle.patch`.  The on-demand subagent bundles are
+          # not installation dependencies (catalog-only), so the rule
+          # excludes them without a path allowlist and cannot miss a bundle
+          # placed anywhere else in the tree.
           official-bundles =
             pkgs.runCommand "dsh-official-bundles-check"
               {
@@ -244,18 +248,21 @@
                 expected = builtins.toJSON inBoxNames;
               }
               ''
+                cliDeps=$(jq -r '.dependencies // {} | keys[]' "$src/apps/cli/package.json")
                 actual=$(
                   cd "$src"
-                  for d in packages/bundle/*/ packages/experimental/*/; do
-                    [ -f "$d/package.json" ] || continue
-                    if jq -e '((.dsh // {}).bundle // {}).patch != null' "$d/package.json" >/dev/null; then
-                      jq -r '.name' "$d/package.json"
+                  find . -name node_modules -prune -o -name package.json -print | while IFS= read -r p; do
+                    name=$(jq -r '.name // empty' "$p" 2>/dev/null) || continue
+                    [ -n "$name" ] || continue
+                    if printf '%s\n' "$cliDeps" | grep -qxF "$name" \
+                      && jq -e '((.dsh // {}).bundle // {}).patch != null' "$p" >/dev/null 2>&1; then
+                      printf '%s\n' "$name"
                     fi
                   done | sort
                 )
                 want=$(printf '%s\n' "$expected" | jq -r '.[]' | sort)
                 if [ "$actual" != "$want" ]; then
-                  echo "official-bundles: by-name set drifted from the pinned dsh source" >&2
+                  echo "official-bundles: by-name set drifted from the installation's shipped bundles" >&2
                   diff <(printf '%s\n' "$want") <(printf '%s\n' "$actual") >&2 || true
                   echo "(left: accepted list, right: shipped bundles)" >&2
                   exit 1
