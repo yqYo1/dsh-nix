@@ -11,7 +11,7 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 Profile `plugins` accept the following forms, mixed in declaration order:
 
-- **in-box bundle**: a name such as `"@deepseek-ai/dsh-base"`, resolved from the DSH package being run.
+- **official bundle**: a name such as `"@deepseek-ai/dsh-base"`, resolved from the DSH installation — nothing to package. The shipped set is accepted by name: the six app bundles (`dsh-base`, `dsh-web-app`, `dsh-headless`, `dsh-sdk-app`, `dsh-sdk-minimal`, `dsh-acp-app`) and the twelve opt-in bundles (`dsh-experimental-*`: `session-search`, `ralph-bundle`, `terminal-bundle`, `badge-skill-bundle`, `session-titles-bundle`, `agent-team-profile`, `voice-input-bundle`, `cot-translation-bundle`, `auto-review`, `inspector-profile`, `plugin-market-bundle`, `tool-worktree`).
 - **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
 - **Nix package**: a user-declared derivation such as `pkgs.buildNpmPackage { ... }`; linked into the profile with its built dependency closure intact.
 - **Nix path**: a prebuilt plugin directory with `package.json` at its root, such as `./my-plugin`; required runtime dependencies must be contained in the artifact.
@@ -187,7 +187,7 @@ Running an actual agent requires credentials.
 ## Notes
 
 - The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.
-- Upstream's standard surfaces are `web` and `headless`. The TUI is composed as a plugin.
+- Upstream's standard profile templates are `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`; every shipped bundle, including the twelve opt-in `dsh-experimental-*` bundles, is usable by name with nothing to package. The accepted list is drift-checked against the pinned DSH source, so a bump that ships new bundles fails loud until the list is refreshed. The TUI is composed as a plugin.
 - Updating `specsLock`/`specsHash` and activating consumers are consumer-side management tasks. This repository's tests do not modify consumer dotfiles.
 
 ## License

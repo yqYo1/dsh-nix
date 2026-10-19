@@ -10,7 +10,8 @@
 # on every boot), comparing a stamp against the artifact store path.
 #
 # `plugins` accepts four forms in one ordered list:
-#   - in-box bundle names  ("@deepseek-ai/dsh-base")          name only
+#   - official bundle names ("@deepseek-ai/dsh-base", the shipped app and
+#     opt-in bundles)                   name only, resolved from the installation
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
 #   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
@@ -36,10 +37,12 @@ let
         type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
         default = [ ];
         description = ''
-          Ordered plugin list. Each entry is one of: an in-box bundle name
-          (@deepseek-ai/dsh-*), a pnpm spec string (resolved at build time;
-          pin with specsLock/specsHash), a Nix package (a user-declared
-          derivation such as pkgs.buildNpmPackage), or a local plugin path.
+          Ordered plugin list. Each entry is one of: an official bundle name
+          the dsh installation ships — the app bundles and the opt-in
+          dsh-experimental-* bundles, resolved by name with nothing to
+          package — a pnpm spec string (resolved at build time; pin with
+          specsLock/specsHash), a Nix package (a user-declared derivation
+          such as pkgs.buildNpmPackage), or a local plugin path.
         '';
       };
       userPatchesFile = lib.mkOption {

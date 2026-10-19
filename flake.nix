@@ -62,10 +62,34 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
+      # The official bundles shipped by the dsh installation: every package
+      # under `packages/bundle/` and `packages/experimental/` that declares
+      # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
+      # users reference them bare, with nothing to package.  Mirrors upstream
+      # `PROFILE_TEMPLATES` app bundles plus `OPTIONAL_BUNDLES` (opt-in,
+      # switched off by default in upstream templates).  The
+      # `official-bundles` check fails on drift with the pinned dsh source.
       inBoxNames = [
+        # App bundles (upstream profile templates).
         "@deepseek-ai/dsh-base"
         "@deepseek-ai/dsh-web-app"
         "@deepseek-ai/dsh-headless"
+        "@deepseek-ai/dsh-sdk-app"
+        "@deepseek-ai/dsh-sdk-minimal"
+        "@deepseek-ai/dsh-acp-app"
+        # Opt-in bundles (upstream OPTIONAL_BUNDLES).
+        "@deepseek-ai/dsh-experimental-session-search"
+        "@deepseek-ai/dsh-experimental-ralph-bundle"
+        "@deepseek-ai/dsh-experimental-terminal-bundle"
+        "@deepseek-ai/dsh-experimental-badge-skill-bundle"
+        "@deepseek-ai/dsh-experimental-session-titles-bundle"
+        "@deepseek-ai/dsh-experimental-agent-team-profile"
+        "@deepseek-ai/dsh-experimental-voice-input-bundle"
+        "@deepseek-ai/dsh-experimental-cot-translation-bundle"
+        "@deepseek-ai/dsh-experimental-auto-review"
+        "@deepseek-ai/dsh-experimental-inspector-profile"
+        "@deepseek-ai/dsh-experimental-plugin-market-bundle"
+        "@deepseek-ai/dsh-experimental-tool-worktree"
       ];
       tui = import ./examples/profiles/tui.nix {
         inherit plugins profilesLib inBoxNames;
@@ -204,6 +228,38 @@
                 test -d ${tuiSpecArtifact}/node_modules/@dsh-nix
                 test ! -L ${tuiSpecArtifact}/node_modules/@dsh-nix
 
+                touch "$out"
+              '';
+
+          # Official-bundle drift guard: the accepted by-name set must equal
+          # every shipped bundle declaration in the pinned dsh source
+          # (`packages/bundle/*` and `packages/experimental/*` with
+          # `dsh.bundle.patch`).  Subagent bundles (`packages/subagent/*`)
+          # are on-demand npm packages, not shipped bundles — excluded.
+          official-bundles =
+            pkgs.runCommand "dsh-official-bundles-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                expected = builtins.toJSON inBoxNames;
+              }
+              ''
+                actual=$(
+                  cd "$src"
+                  for d in packages/bundle/*/ packages/experimental/*/; do
+                    [ -f "$d/package.json" ] || continue
+                    if jq -e '((.dsh // {}).bundle // {}).patch != null' "$d/package.json" >/dev/null; then
+                      jq -r '.name' "$d/package.json"
+                    fi
+                  done | sort
+                )
+                want=$(printf '%s\n' "$expected" | jq -r '.[]' | sort)
+                if [ "$actual" != "$want" ]; then
+                  echo "official-bundles: by-name set drifted from the pinned dsh source" >&2
+                  diff <(printf '%s\n' "$want") <(printf '%s\n' "$actual") >&2 || true
+                  echo "(left: accepted list, right: shipped bundles)" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
 
@@ -507,6 +563,53 @@
                   exit 1
                 fi
                 grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                touch "$out"
+              '';
+
+          # Opt-in official bundles need no packaging: base + web-app plus two
+          # experimental layers (session-search, the worktree tool) must boot
+          # exactly like the plain web profile.
+          profile-boot-experimental =
+            let
+              profile = profilesLib.mkProfileBundle {
+                name = "experimental";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                  "@deepseek-ai/dsh-experimental-session-search"
+                  "@deepseek-ai/dsh-experimental-tool-worktree"
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-boot-experimental-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/experimental"
+                chmod -R u+w "$home/profiles/experimental"
+                # Composition is exact: all four declared layers, order kept.
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-session-search", "@deepseek-ai/dsh-experimental-tool-worktree"]' \
+                  "$home/profiles/experimental/package.json" >/dev/null
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} experimental "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                # A dropped opt-in layer would still let the boot pass; assert
+                # the launcher reported no skipped bundle.
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
 

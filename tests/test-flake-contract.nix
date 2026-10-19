@@ -22,6 +22,8 @@ let
   hmIndependentChecks = [
     "boot-checker-wiring"
     "home-module"
+    "official-bundles"
+    "profile-boot-experimental"
     "profile-boot-headless"
     "profile-boot-tui"
     "profile-boot-web"
