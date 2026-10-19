@@ -28,6 +28,14 @@
   };
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # Pinned fetch support for the `deepseek-harness-pnpm-deps` fixed-output
+  # derivation.  `fetchPnpmDeps` ships its build script in the *evaluating*
+  # nixpkgs, so a consumer that follows its own nixpkgs into this flake would
+  # otherwise fetch the store with a different script and miss the pinned
+  # output hash.  The deps fetch therefore always runs from this pin;
+  # everything else still builds with the consumer's nixpkgs.  Do NOT add
+  # `follows` to this input — that reintroduces the fixed-output mismatch.
+  inputs.nixpkgs-fetch.url = "github:NixOS/nixpkgs/a7868a727837f3c09cee2ce0ca671c76b1589fed";
   inputs.systems.url = "github:nix-systems/default";
   inputs.dsh = {
     url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.1-rc.1";
@@ -38,6 +46,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-fetch,
       systems,
       dsh,
     }:
@@ -45,6 +54,11 @@
       lib = nixpkgs.lib;
       supportedSystems = import systems;
       forAllSystems = f: lib.genAttrs supportedSystems (system: f system);
+
+      # The one fetch support every dsh build uses.  The pnpm-deps FOD's
+      # hash is bound to `fetchPnpmDeps`' script text, so it must never be
+      # instantiated from a consumer-mutable nixpkgs (issue #10).
+      fetchPnpmDepsFor = system: (nixpkgs-fetch.legacyPackages.${system}).fetchPnpmDeps;
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
@@ -79,11 +93,17 @@
         pluginsLib = plugins;
         inherit profilesLib inBoxNames;
         dshSrc = dsh;
+        inherit fetchPnpmDepsFor;
       };
 
-      # `pkgs.dsh` for any consumer applying the overlay.
+      # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
+      # built from the pinned fetch support so this path keeps the hash
+      # valid under consumer nixpkgs overrides.
       overlay = final: prev: {
-        dsh = final.callPackage ./pkgs/dsh.nix { src = dsh; };
+        dsh = final.callPackage ./pkgs/dsh.nix {
+          src = dsh;
+          fetchPnpmDeps = fetchPnpmDepsFor final.stdenv.hostPlatform.system;
+        };
       };
     in
     {
@@ -108,7 +128,10 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          dshPackage = pkgs.callPackage ./pkgs/dsh.nix { src = dsh; };
+          dshPackage = pkgs.callPackage ./pkgs/dsh.nix {
+            src = dsh;
+            fetchPnpmDeps = fetchPnpmDepsFor system;
+          };
         in
         {
           # The default package is the primary user-facing DSH CLI. This
