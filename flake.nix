@@ -69,7 +69,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
-        lib.genAttrs officialPlugins.names (name:
+        lib.genAttrs (lib.attrNames officialPlugins.pins) (name:
           pkgs.callPackage ./pkgs/official-plugin.nix (
             {
               npmName = name;
@@ -282,6 +282,49 @@
                   echo "(left: accepted list, right: shipped bundles)" >&2
                   exit 1
                 fi
+                touch "$out"
+              '';
+
+          # Official on-demand pins must track the pinned dsh tag: the pinned
+          # names equal the upstream ON_DEMAND_BUNDLES list, every pin version
+          # equals the source version, and no pin ships discovery placeholders.
+          # A tag bump that forgets lib/official-plugins.nix fails loud here.
+          official-pins =
+            pkgs.runCommand "dsh-official-pins-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                pins = builtins.toJSON (builtins.mapAttrs (_: p: {
+                  inherit (p) version tarballHash depsHash;
+                }) officialPlugins.pins);
+              }
+              ''
+                version=$(jq -r .version "$src/apps/cli/package.json")
+                upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/boot/app-boot/src/official-bundle-packages.ts" \
+                  | grep -oE "'@deepseek-ai/[^']+'" | tr -d "'" | sort)
+                pinned=$(printf '%s\n' "$pins" | jq -r 'keys[]' | sort)
+                if [ "$upstream" != "$pinned" ]; then
+                  echo "official-pins: pinned names differ from upstream ON_DEMAND_BUNDLES" >&2
+                  diff <(printf '%s\n' "$pinned") <(printf '%s\n' "$upstream") >&2 || true
+                  exit 1
+                fi
+                printf '%s\n' "$pins" \
+                  | jq -r 'to_entries[] | [.key, .value.version, .value.tarballHash, .value.depsHash] | @tsv' \
+                  > "$TMPDIR/pins.tsv"
+                while IFS=$'\t' read -r name pin_version tarball_hash deps_hash; do
+                  if [ "$pin_version" != "$version" ]; then
+                    echo "official-pins: $name pinned at $pin_version but the dsh source is $version; refresh lib/official-plugins.nix" >&2
+                    exit 1
+                  fi
+                  case "$tarball_hash" in
+                    sha512-*) : ;;
+                    *) echo "official-pins: $name tarballHash is not a sha512 SRI" >&2; exit 1 ;;
+                  esac
+                  case "$deps_hash" in
+                    sha256-*) : ;;
+                    *) echo "official-pins: $name depsHash is not a sha256 SRI (still in discovery mode?)" >&2; exit 1 ;;
+                  esac
+                done < "$TMPDIR/pins.tsv"
                 touch "$out"
               '';
 

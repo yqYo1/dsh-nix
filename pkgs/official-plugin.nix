@@ -78,7 +78,9 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
     mkdir -p "$out"
     cp -a . "$out/"
-    rm -rf "$out/node_modules/.cache" "$out/node_modules/.modules.yaml"
+    # Build-time pnpm plumbing and caches are not part of the plugin.
+    rm -rf "$out/node_modules/.cache" "$out/node_modules/.modules.yaml" \
+      "$out/pnpm-workspace.yaml"
     runHook postInstall
   '';
 

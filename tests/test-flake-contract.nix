@@ -23,6 +23,7 @@ let
     "boot-checker-wiring"
     "home-module"
     "official-bundles"
+    "official-pins"
     "profile-boot-experimental"
     "profile-boot-headless"
     "profile-boot-tui"

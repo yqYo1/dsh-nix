@@ -30,11 +30,8 @@ let
     };
 in
 {
-  names = [
-    "@deepseek-ai/dsh-subagent-codex"
-    "@deepseek-ai/dsh-subagent-claude-code"
-  ];
-
+  # Package name -> build pin.  Profile classification derives the accepted
+  # names from this attribute set's keys.
   pins = {
     "@deepseek-ai/dsh-subagent-codex" = pin {
       version = "0.2.1-rc.2";
