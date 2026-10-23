@@ -9,13 +9,14 @@ let
       name,
       plugins,
       inBoxNames ? [ ],
+      officialPlugins ? { },
       userPatchesFile ? null,
       userPatches ? [ ],
       specsHash ? "",
       specsLock ? null,
     }:
     let
-      classified = map (plugin: classifyPlugin { inherit inBoxNames plugin; }) plugins;
+      classified = map (plugin: classifyPlugin { inherit inBoxNames officialPlugins plugin; }) plugins;
       nixPlugins = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
       packageNames = map (plugin: plugin.packageName) nixPlugins;

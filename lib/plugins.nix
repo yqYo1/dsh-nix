@@ -64,6 +64,7 @@ let
   classifyPlugin =
     {
       inBoxNames ? [ ],
+      officialPlugins ? { },
       plugin,
     }:
     if builtins.isString plugin then
@@ -71,6 +72,14 @@ let
         {
           kind = "in-box";
           name = plugin;
+        }
+      else if officialPlugins ? ${plugin} then
+        {
+          kind = "nix";
+          plugin = mkPluginBundle {
+            path = officialPlugins.${plugin};
+            packageName = plugin;
+          };
         }
       else
         {

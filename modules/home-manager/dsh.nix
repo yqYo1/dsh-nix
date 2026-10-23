@@ -10,7 +10,8 @@
 # on every boot), comparing a stamp against the artifact store path.
 #
 # `plugins` accepts four forms in one ordered list:
-#   - in-box bundle names  ("@deepseek-ai/dsh-base")          name only
+#   - official bundle names ("@deepseek-ai/dsh-base", the shipped app and
+#     opt-in bundles)                   name only, resolved from the installation
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
 #   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
@@ -23,7 +24,7 @@
 # pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
 # the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
 # main build.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null) }:
+{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null), officialPluginsFor ? (_: { }) }:
 
 { config, lib, pkgs, ... }:
 
@@ -36,10 +37,13 @@ let
         type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
         default = [ ];
         description = ''
-          Ordered plugin list. Each entry is one of: an in-box bundle name
-          (@deepseek-ai/dsh-*), a pnpm spec string (resolved at build time;
-          pin with specsLock/specsHash), a Nix package (a user-declared
-          derivation such as pkgs.buildNpmPackage), or a local plugin path.
+          Ordered plugin list. Each entry is one of: an official bundle name —
+          the shipped app and dsh-experimental-* bundles (resolved from the
+          installation) and the two on-demand subagent bundles (built by this
+          repository from their pinned npm releases) — with nothing to package
+          for users; a pnpm spec string (resolved at build time; pin with
+          specsLock/specsHash), a Nix package (a user-declared derivation such
+          as pkgs.buildNpmPackage), or a local plugin path.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -76,6 +80,7 @@ let
       inherit (p) userPatchesFile userPatches specsHash specsLock;
       plugins = p.plugins;
       inherit inBoxNames;
+      officialPlugins = officialPluginsFor pkgs.stdenv.hostPlatform.system;
     }) cfg.profiles;
 
   artifacts = lib.mapAttrs (name: declaration:

@@ -62,10 +62,49 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
+      officialPlugins = import ./lib/official-plugins.nix { inherit lib; };
+      # Pinned builds of the official ON-DEMAND bundles (published npm
+      # releases): profiles may name them exactly like shipped bundles.
+      officialPluginsFor = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        lib.genAttrs (lib.attrNames officialPlugins.pins) (name:
+          pkgs.callPackage ./pkgs/official-plugin.nix (
+            {
+              npmName = name;
+              fetchPnpmDeps = fetchPnpmDepsFor system;
+            }
+            // officialPlugins.pins.${name}
+          ));
+      # The official bundles shipped by the dsh installation: every package
+      # under `packages/bundle/` and `packages/experimental/` that declares
+      # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
+      # users reference them bare, with nothing to package.  Mirrors upstream
+      # `PROFILE_TEMPLATES` app bundles plus `OPTIONAL_BUNDLES` (opt-in,
+      # switched off by default in upstream templates).  The
+      # `official-bundles` check fails on drift with the pinned dsh source.
       inBoxNames = [
+        # App bundles (upstream profile templates).
         "@deepseek-ai/dsh-base"
         "@deepseek-ai/dsh-web-app"
         "@deepseek-ai/dsh-headless"
+        "@deepseek-ai/dsh-sdk-app"
+        "@deepseek-ai/dsh-sdk-minimal"
+        "@deepseek-ai/dsh-acp-app"
+        # Opt-in bundles (upstream OPTIONAL_BUNDLES).
+        "@deepseek-ai/dsh-experimental-session-search"
+        "@deepseek-ai/dsh-experimental-ralph-bundle"
+        "@deepseek-ai/dsh-experimental-terminal-bundle"
+        "@deepseek-ai/dsh-experimental-badge-skill-bundle"
+        "@deepseek-ai/dsh-experimental-session-titles-bundle"
+        "@deepseek-ai/dsh-experimental-agent-team-profile"
+        "@deepseek-ai/dsh-experimental-voice-input-bundle"
+        "@deepseek-ai/dsh-experimental-cot-translation-bundle"
+        "@deepseek-ai/dsh-experimental-auto-review"
+        "@deepseek-ai/dsh-experimental-inspector-profile"
+        "@deepseek-ai/dsh-experimental-plugin-market-bundle"
+        "@deepseek-ai/dsh-experimental-tool-worktree"
       ];
       tui = import ./examples/profiles/tui.nix {
         inherit plugins profilesLib inBoxNames;
@@ -93,7 +132,7 @@
         pluginsLib = plugins;
         inherit profilesLib inBoxNames;
         dshSrc = dsh;
-        inherit fetchPnpmDepsFor;
+        inherit fetchPnpmDepsFor officialPluginsFor;
       };
 
       # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
@@ -204,6 +243,88 @@
                 test -d ${tuiSpecArtifact}/node_modules/@dsh-nix
                 test ! -L ${tuiSpecArtifact}/node_modules/@dsh-nix
 
+                touch "$out"
+              '';
+
+          # Official-bundle drift guard: the accepted by-name set must equal
+          # every bundle the installation ships.  The rule mirrors the
+          # plugin-manager's own `shipped` computation: a package is an
+          # installation-provided bundle iff its name is a key of the
+          # installation package.json `dependencies` and its manifest
+          # declares `dsh.bundle.patch`.  The on-demand subagent bundles are
+          # not installation dependencies (catalog-only), so the rule
+          # excludes them without a path allowlist and cannot miss a bundle
+          # placed anywhere else in the tree.
+          official-bundles =
+            pkgs.runCommand "dsh-official-bundles-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                expected = builtins.toJSON inBoxNames;
+              }
+              ''
+                cliDeps=$(jq -r '.dependencies // {} | keys[]' "$src/apps/cli/package.json")
+                actual=$(
+                  cd "$src"
+                  find . -name node_modules -prune -o -name package.json -print | while IFS= read -r p; do
+                    name=$(jq -r '.name // empty' "$p" 2>/dev/null) || continue
+                    [ -n "$name" ] || continue
+                    if printf '%s\n' "$cliDeps" | grep -qxF "$name" \
+                      && jq -e '((.dsh // {}).bundle // {}).patch != null' "$p" >/dev/null 2>&1; then
+                      printf '%s\n' "$name"
+                    fi
+                  done | sort
+                )
+                want=$(printf '%s\n' "$expected" | jq -r '.[]' | sort)
+                if [ "$actual" != "$want" ]; then
+                  echo "official-bundles: by-name set drifted from the installation's shipped bundles" >&2
+                  diff <(printf '%s\n' "$want") <(printf '%s\n' "$actual") >&2 || true
+                  echo "(left: accepted list, right: shipped bundles)" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Official on-demand pins must track the pinned dsh tag: the pinned
+          # names equal the upstream ON_DEMAND_BUNDLES list, every pin version
+          # equals the source version, and no pin ships discovery placeholders.
+          # A tag bump that forgets lib/official-plugins.nix fails loud here.
+          official-pins =
+            pkgs.runCommand "dsh-official-pins-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                pins = builtins.toJSON (builtins.mapAttrs (_: p: {
+                  inherit (p) version tarballHash depsHash;
+                }) officialPlugins.pins);
+              }
+              ''
+                version=$(jq -r .version "$src/apps/cli/package.json")
+                upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/boot/app-boot/src/official-bundle-packages.ts" \
+                  | grep -oE "'@deepseek-ai/[^']+'" | tr -d "'" | sort)
+                pinned=$(printf '%s\n' "$pins" | jq -r 'keys[]' | sort)
+                if [ "$upstream" != "$pinned" ]; then
+                  echo "official-pins: pinned names differ from upstream ON_DEMAND_BUNDLES" >&2
+                  diff <(printf '%s\n' "$pinned") <(printf '%s\n' "$upstream") >&2 || true
+                  exit 1
+                fi
+                printf '%s\n' "$pins" \
+                  | jq -r 'to_entries[] | [.key, .value.version, .value.tarballHash, .value.depsHash] | @tsv' \
+                  > "$TMPDIR/pins.tsv"
+                while IFS=$'\t' read -r name pin_version tarball_hash deps_hash; do
+                  if [ "$pin_version" != "$version" ]; then
+                    echo "official-pins: $name pinned at $pin_version but the dsh source is $version; refresh lib/official-plugins.nix" >&2
+                    exit 1
+                  fi
+                  case "$tarball_hash" in
+                    sha512-*) : ;;
+                    *) echo "official-pins: $name tarballHash is not a sha512 SRI" >&2; exit 1 ;;
+                  esac
+                  case "$deps_hash" in
+                    sha256-*) : ;;
+                    *) echo "official-pins: $name depsHash is not a sha256 SRI (still in discovery mode?)" >&2; exit 1 ;;
+                  esac
+                done < "$TMPDIR/pins.tsv"
                 touch "$out"
               '';
 
@@ -507,6 +628,157 @@
                   exit 1
                 fi
                 grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                touch "$out"
+              '';
+
+          # Opt-in official bundles need no packaging: base + web-app plus two
+          # experimental layers (session-search, the worktree tool) must boot
+          # exactly like the plain web profile.
+          profile-boot-experimental =
+            let
+              profile = profilesLib.mkProfileBundle {
+                name = "experimental";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                  "@deepseek-ai/dsh-experimental-session-search"
+                  "@deepseek-ai/dsh-experimental-tool-worktree"
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-boot-experimental-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/experimental"
+                chmod -R u+w "$home/profiles/experimental"
+                # Composition is exact: all four declared layers, order kept.
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-session-search", "@deepseek-ai/dsh-experimental-tool-worktree"]' \
+                  "$home/profiles/experimental/package.json" >/dev/null
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} experimental "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                # A dropped opt-in layer would still let the boot pass; assert
+                # the launcher reported no skipped bundle.
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Official kernel plugins mount without packaging: a patch row in
+          # the profile's own layer names the package and the name resolves
+          # from the dsh installation (no bundle, no Nix package).  base +
+          # web-app + one official tool plugin (str-replace-editor, not part
+          # of any shipped bundle) must compose the row and boot CHECK-OK.
+          profile-official-plugin =
+            let
+              profile = profilesLib.mkProfileBundle {
+                name = "official-plugin";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                ];
+                userPatches = [
+                  {
+                    insert = [
+                      {
+                        id = "str-replace-editor";
+                        name = "@deepseek-ai/dsh-tool-str-replace-editor";
+                      }
+                    ];
+                  }
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-official-plugin-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/official-plugin"
+                chmod -R u+w "$home/profiles/official-plugin"
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]' \
+                  "$home/profiles/official-plugin/package.json" >/dev/null
+                grep -q 'str-replace-editor' "$home/profiles/official-plugin/cordis.patch.yml"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} official-plugin "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Official ON-DEMAND bundles by name: dsh-subagent-codex and
+          # dsh-subagent-claude-code are not in the installation, so dsh-nix
+          # builds them from their pinned npm releases (official/ pins).  The
+          # profile links them like Nix-package plugins and boots with no
+          # skipped bundle.
+          profile-official-on-demand =
+            let
+              profile = profilesLib.mkProfileBundle {
+                name = "official-on-demand";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                  "@deepseek-ai/dsh-subagent-codex"
+                  "@deepseek-ai/dsh-subagent-claude-code"
+                ];
+                officialPlugins = officialPluginsFor system;
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-official-on-demand-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/official-on-demand"
+                chmod -R u+w "$home/profiles/official-on-demand"
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-subagent-codex", "@deepseek-ai/dsh-subagent-claude-code"]' \
+                  "$home/profiles/official-on-demand/package.json" >/dev/null
+                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/package.json"
+                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/package.json"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} official-on-demand "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
 
