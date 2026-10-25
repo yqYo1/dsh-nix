@@ -328,6 +328,61 @@
                 touch "$out"
               '';
 
+          # Every plugin package named by a shipped bundle's rows must exist in
+          # the built installation: that is what lets a profile row (or the
+          # bundle itself) resolve the name without Nix packaging.  Guards the
+          # "names resolve from the installation" promise across tag bumps.
+          official-plugin-resolution =
+            pkgs.runCommand "dsh-official-plugin-resolution-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                install = self.packages.${system}.dsh;
+                shipped = builtins.toJSON inBoxNames;
+              }
+              ''
+                printf '%s\n' "$shipped" | jq -r '.[]' | sort > "$TMPDIR/shipped.txt"
+                cd "$src"
+                find . -name node_modules -prune -o -name package.json -print > "$TMPDIR/pkgs.txt"
+                : > "$TMPDIR/names.txt"
+                : > "$TMPDIR/problems.txt"
+                while IFS= read -r p; do
+                  name=$(jq -r '.name // empty' "$p" 2>/dev/null) || continue
+                  [ -n "$name" ] || continue
+                  grep -qxF "$name" "$TMPDIR/shipped.txt" || continue
+                  jq -r '[((.dsh // {}).bundle // {}).patch // empty] | flatten | .[]' "$p" > "$TMPDIR/patches.txt" 2>/dev/null || true
+                  while IFS= read -r rel; do
+                    [ -n "$rel" ] || continue
+                    f="$(dirname "$p")/$rel"
+                    if [ ! -f "$f" ]; then
+                      echo "$name: declared patch $rel does not exist" >> "$TMPDIR/problems.txt"
+                      continue
+                    fi
+                    grep -oE "name:[[:space:]]*['\"]?@deepseek-ai/[A-Za-z0-9._/-]+" "$f" \
+                      | sed -E "s/^name:[[:space:]]*['\"]?//" >> "$TMPDIR/names.txt" || true
+                  done < "$TMPDIR/patches.txt"
+                done < "$TMPDIR/pkgs.txt"
+                if [ -s "$TMPDIR/problems.txt" ]; then
+                  echo "official-plugin-resolution: shipped bundle patch declarations are broken" >&2
+                  cat "$TMPDIR/problems.txt" >&2
+                  exit 1
+                fi
+                sed -E 's#^(@deepseek-ai/[^/]+)/.*#\1#' "$TMPDIR/names.txt" | sort -u > "$TMPDIR/want.txt"
+                # -L follows the pnpm symlink farm; the depth bound stops the
+                # traversal before parent/child workspace links recurse, and
+                # still reaches every node_modules view (root, .pnpm, package).
+                find -L "$install" -maxdepth 8 -path '*/node_modules/@deepseek-ai/*/package.json' -print 2>/dev/null \
+                  | sed -E 's#.*/node_modules/(@deepseek-ai/[^/]+)/package.json#\1#' | sort -u > "$TMPDIR/have.txt" || true
+                missing=$(comm -23 "$TMPDIR/want.txt" "$TMPDIR/have.txt")
+                if [ -n "$missing" ]; then
+                  echo "official-plugin-resolution: packages named by shipped bundle rows are absent from the installation:" >&2
+                  printf '%s\n' "$missing" >&2
+                  exit 1
+                fi
+                echo "resolved $(wc -l < "$TMPDIR/want.txt") official plugin packages from the installation"
+                touch "$out"
+              '';
+
           # Genuine user-declared buildNpmPackage regression: the raw
           # derivation goes straight into `plugins` (no installedRoot selectors).
           profile-user-npm = (import ./tests/user-npm.nix {
@@ -678,11 +733,12 @@
                 touch "$out"
               '';
 
-          # Official kernel plugins mount without packaging: a patch row in
-          # the profile's own layer names the package and the name resolves
-          # from the dsh installation (no bundle, no Nix package).  base +
-          # web-app + one official tool plugin (str-replace-editor, not part
-          # of any shipped bundle) must compose the row and boot CHECK-OK.
+          # An official cordis plugin package that ships without a bundle of
+          # its own mounts without packaging: a patch row in the profile's own
+          # layer names the package and the name resolves from the built
+          # installation (no bundle, no Nix package).  base + web-app + one
+          # official tool plugin (str-replace-editor, no dsh.bundle) must
+          # compose the row and boot CHECK-OK.
           profile-official-plugin =
             let
               profile = profilesLib.mkProfileBundle {

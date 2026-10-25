@@ -24,6 +24,7 @@ let
     "home-module"
     "official-bundles"
     "official-pins"
+    "official-plugin-resolution"
     "profile-boot-experimental"
     "profile-boot-headless"
     "profile-boot-tui"

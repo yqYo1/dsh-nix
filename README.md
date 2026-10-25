@@ -5,12 +5,14 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile packager**: resolves plugin dependencies and composes profiles at build time.
-- **official plugins**: every official bundle is usable by profile name — shipped bundles resolve from the installation, the two on-demand subagent bundles are built by this repository — and official non-bundle plugins mount through profile patch rows. Users package nothing.
+- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: shipped bundles resolve from the installation and the two on-demand subagent bundles are built by this repository. Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
 - **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
 
 ## Plugin composition
 
-Profile `plugins` accept the following forms, mixed in declaration order:
+DSH has two units. A **cordis plugin** is a row-level component; every part of the product is one. A **bundle** is the installable plugin unit: a package that declares `dsh.bundle`, whose patch file is an ordered layer of rows. `dsh plugin` and the plugin market only act on bundles, and a package without `dsh.bundle` installs as a plain dependency (no layer).
+
+The `plugins` list follows that model: an entry that declares `dsh.bundle` contributes a layer, and a package without it is a dependency that rows can name. Profile `plugins` accept the following forms, mixed in declaration order:
 
 - **official bundle**: a name such as `"@deepseek-ai/dsh-base"` — nothing to package (see [Official bundles](#official-bundles)).
 - **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
@@ -25,7 +27,7 @@ If a spec and a Nix plugin share a package name, the build fails.
 
 ### Official bundles
 
-Every official bundle is accepted by name; users never package or hash them.
+The official plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them.
 
 - **app bundles** (upstream `PROFILE_TEMPLATES`, resolved from the installation):
   - `@deepseek-ai/dsh-base`
@@ -64,9 +66,11 @@ programs.dsh.profiles.research = {
 
 The accepted name list is drift-checked against the pinned DSH source, and the on-demand pins are checked against the tag's version and upstream catalog list, so a dsh bump that ships new bundles or leaves a stale pin fails `nix flake check`.
 
-### Official kernel plugins
+### Plugin packages without a bundle
 
-Official *kernel plugins* that ship without a bundle (e.g. `@deepseek-ai/dsh-tool-str-replace-editor`) are mounted by patch rows in the profile's own layer; their package names resolve from the dsh installation, so nothing is packaged:
+Not every official plugin package is a bundle: a cordis plugin such as `@deepseek-ai/dsh-tool-str-replace-editor` ships in the installation with no `dsh.bundle` of its own, and upstream's own README composes it by row. The profile's `userPatches` layer can insert that row by package name; the name resolves from the installation, so it needs no Nix packaging either.
+
+Because the package declares no `dsh.bundle`, `dsh plugin` treats it as a plain dependency and activates no layer — the row is the mount point. Use this for plugin packages rather than expecting a layer:
 
 ```nix
 programs.dsh.profiles.web = {
@@ -229,7 +233,7 @@ The DSH updater syncs both locks and then runs the public checks, the dedicated 
 
 - **validator/artifacts**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
 - **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and pin-checks the on-demand bundles against the tag (name set, version, non-placeholder hashes).
-- **Official plugin paths**: boots a profile composed with two opt-in bundles, boots a profile with an official non-bundle plugin mounted by a user patch row, and builds both on-demand subagent bundles (provider binaries included) into a profile that boots.
+- **Bundle and row composition**: boots a profile composed with two opt-in bundles, boots a profile that mounts an installed plugin package by a user patch row, and builds both on-demand subagent bundles (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
 - **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
 - **User-declared npm packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
 - **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and user-declared npm packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
