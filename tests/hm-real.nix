@@ -53,7 +53,7 @@ let
   netGuard = ./fixtures/no-net-guard.cjs;
 
   # Genuine user-declared buildNpmPackage plugin, passed RAW into
-  # `plugins` (no mkPluginBundle selectors, no installed-root path
+  # `plugins` (no mkBundle selectors, no installed-root path
   # surgery): the manifest name (@dsh-poc/user-npm-plugin) differs from
   # the derivation pname (dsh-poc-npm-user-pkg) on purpose.
   userNpmPkg = import ./fixtures/user-npm-plugin.nix { inherit pkgs; };
@@ -331,13 +331,13 @@ let
 
   # Expected profile artifacts, rebuilt from identical declarations so the
   # stamp assertions compare exact store paths (module builds the same).
-  mkDecls = defs: lib.mapAttrs (name: p: profilesLib.mkProfileBundle ({
+  mkDecls = defs: lib.mapAttrs (name: p: profilesLib.mkProfile ({
     inherit name inBoxNames;
     userPatchesFile = null;
     userPatches = [ ];
     specsHash = "";
     # Threaded default (not dropped): a lock-bearing caller profile must
-    # reach mkProfileBundle intact, never silently fall back to live
+    # reach mkProfile intact, never silently fall back to live
     # resolve and reuse a cached broken FOD.
     specsLock = null;
   } // (if builtins.isAttrs p then p else { plugins = p; }))) defs;

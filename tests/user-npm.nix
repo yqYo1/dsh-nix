@@ -32,7 +32,7 @@ let
 
   userPkg = import ./fixtures/user-npm-plugin.nix { inherit pkgs; };
 
-  profile = profilesLib.mkProfileBundle {
+  profile = profilesLib.mkProfile {
     name = "user-npm";
     plugins = [ userPkg ];
     userPatchesFile = null;
@@ -49,7 +49,7 @@ let
 
   negativeMissingArtifact = profilesLib.buildProfileBundle {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle {
+    profile = profilesLib.mkProfile {
       name = "user-npm-negative-missing";
       plugins = [ missingDrv ];
       userPatchesFile = null;
@@ -60,7 +60,7 @@ let
 
   negativeCollisionArtifact = profilesLib.buildProfileBundle {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle {
+    profile = profilesLib.mkProfile {
       name = "user-npm-negative-collision";
       plugins = [ userPkg userPkg ];
       userPatchesFile = null;

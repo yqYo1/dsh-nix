@@ -85,7 +85,7 @@ stdenvNoCC.mkDerivation {
   '';
 
   meta = {
-    description = "Official dsh plugin bundle ${npmName} ${version} (pinned npm build)";
+    description = "Official DeepSeek Harness bundle ${npmName} ${version} (pinned npm build)";
     homepage = "https://github.com/deepseek-ai/deepseek-harness";
     license = lib.licenses.mit;
     platforms = lib.platforms.all;

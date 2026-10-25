@@ -1,7 +1,7 @@
 { lib }:
 
 let
-  mkPluginBundle =
+  mkBundle =
     {
       packageName ? null,
       path,
@@ -25,7 +25,7 @@ let
           if builtins.pathExists manifestPath then
             builtins.fromJSON (builtins.readFile manifestPath)
           else
-            throw "dsh plugin bundle: missing package.json at ${manifestPath}"
+            throw "dsh bundle: missing package.json at ${manifestPath}"
         else
           null;
       resolvedPackageName = if packageName != null then packageName else manifest.name or null;
@@ -36,7 +36,7 @@ let
         if resolvedPackageName == null || resolvedPackageName == "" then
           if manifest == null then null
           else
-            throw "dsh plugin bundle: packageName is required (set it explicitly or provide package.json name)"
+            throw "dsh bundle: packageName is required (set it explicitly or provide package.json name)"
         else
           resolvedPackageName;
       declaredPatch =
@@ -76,7 +76,7 @@ let
       else if officialPlugins ? ${plugin} then
         {
           kind = "nix";
-          plugin = mkPluginBundle {
+          plugin = mkBundle {
             path = officialPlugins.${plugin};
             packageName = plugin;
           };
@@ -94,7 +94,7 @@ let
     else
       {
         kind = "nix";
-        plugin = mkPluginBundle { path = plugin; };
+        plugin = mkBundle { path = plugin; };
       };
 
   fetchSpecs =
@@ -319,7 +319,6 @@ let
     };
 in
 {
-  inherit mkPluginBundle;
-  mkPlugin = mkPluginBundle;
+  inherit mkBundle;
   inherit classifyPlugin fetchSpecs;
 }

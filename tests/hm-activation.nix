@@ -39,7 +39,7 @@ let
     userPatches = [ ];
     specsHash = "";
     # Threaded (not dropped): a lock-bearing caller profile must reach
-    # mkProfileBundle intact, never silently fall back to live resolve.
+    # mkProfile intact, never silently fall back to live resolve.
     specsLock = null;
   };
   normalized = lib.mapAttrs (name: p: profileDefaults // (if builtins.isAttrs p then p else { plugins = p; })) profiles;
@@ -57,7 +57,7 @@ let
   };
 
   declarations = lib.mapAttrs (name: p:
-    profilesLib.mkProfileBundle {
+    profilesLib.mkProfile {
       inherit name;
       inherit (p) plugins userPatchesFile userPatches specsHash specsLock;
       inherit inBoxNames;

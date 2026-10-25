@@ -75,7 +75,7 @@ let
   };
 
   # Genuine user-declared buildNpmPackage plugin, passed RAW (no
-  # mkPluginBundle selectors, no installed-root path surgery): the
+  # mkBundle selectors, no installed-root path surgery): the
   # build-time resolver reads the installed root
   # ($out/lib/node_modules/@dsh-poc/user-npm-plugin) and the manifest
   # name (@dsh-poc/user-npm-plugin, never the dsh-poc-npm-user-pkg pname).
@@ -133,7 +133,7 @@ let
   # (toString never realises: no build happens in this evaluation).
   expectedAgentArtifact = toString (profilesLib.buildProfileBundle {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle ({
+    profile = profilesLib.mkProfile ({
       name = "agent";
       inherit inBoxNames;
     } // agentDecl);
@@ -150,7 +150,7 @@ let
   # declaration above (store-path string only, same as above).
   expectedUserNpmArtifact = toString (profilesLib.buildProfileBundle {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle ({
+    profile = profilesLib.mkProfile ({
       name = "user-npm";
       inherit inBoxNames;
     } // userNpmDecl);

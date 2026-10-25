@@ -4,7 +4,7 @@ let
   pluginsLib = import ./plugins.nix { inherit lib; };
   inherit (pluginsLib) classifyPlugin fetchSpecs;
 
-  mkProfileBundle =
+  mkProfile =
     {
       name,
       plugins,
@@ -27,19 +27,19 @@ let
       knownPackageNames = builtins.filter (n: n != null && n != "") packageNames;
       checkedName =
         if name == null || name == "" then
-          throw "dsh profile bundle: name must not be empty"
+          throw "dsh profile: name must not be empty"
         else
           name;
       uniquePackageNames =
         if builtins.length knownPackageNames == builtins.length (lib.unique knownPackageNames) then
           true
         else
-          throw "dsh profile bundle: plugin packageNames must be unique";
+          throw "dsh profile: plugin packageNames must be unique";
       specs = map (entry: entry.spec)
         (builtins.filter (entry: entry.kind == "spec") classified);
       checkedSpecsLock =
         if specsLock != null && specs == [ ] then
-          throw "dsh profile bundle ${checkedName}: specsLock given but no spec plugins declared"
+          throw "dsh profile ${checkedName}: specsLock given but no spec plugins declared"
         else
           specsLock;
     in
@@ -118,7 +118,7 @@ let
         directCount=$(jq 'length' "$specRoot/direct-specs.json")
         wantCount=$(jq -r '.specCount' "$metadata")
         if [ "$directCount" != "$wantCount" ]; then
-          echo "dsh profile bundle: direct-specs.json has $directCount entries, want $wantCount" >&2
+          echo "dsh profile: direct-specs.json has $directCount entries, want $wantCount" >&2
           exit 1
         fi
       fi
@@ -159,9 +159,9 @@ let
           return 0
         fi
         if [ "$count" -eq 0 ]; then
-          echo "dsh profile bundle: no package.json at $pkg/package.json and no installed package under $pkg/lib/node_modules (want exactly one direct root)" >&2
+          echo "dsh profile: no package.json at $pkg/package.json and no installed package under $pkg/lib/node_modules (want exactly one direct root)" >&2
         else
-          echo "dsh profile bundle: ambiguous installed packages under $pkg/lib/node_modules (found $count:$listed); pass an explicit installed root path" >&2
+          echo "dsh profile: ambiguous installed packages under $pkg/lib/node_modules (found $count:$listed); pass an explicit installed root path" >&2
         fi
         return 1
       }
@@ -174,7 +174,7 @@ let
         else
           resolved=$(jq -r '.name // empty' "$2/package.json")
           if [ -z "$resolved" ]; then
-            echo "dsh profile bundle: packageName is required (set it explicitly or provide package.json name) for $2" >&2
+            echo "dsh profile: packageName is required (set it explicitly or provide package.json name) for $2" >&2
             return 1
           fi
           printf '%s' "$resolved"
@@ -226,7 +226,7 @@ let
         effectiveRoot=$(resolve_effective_root "$packagePath") || exit 1
         packageName=$(resolve_nix_name "$entry" "$effectiveRoot") || exit 1
         case "$seen_nix_names" in
-          *" $packageName "*) echo "dsh profile bundle: plugin packageNames must be unique (duplicate $packageName)" >&2; exit 1 ;;
+          *" $packageName "*) echo "dsh profile: plugin packageNames must be unique (duplicate $packageName)" >&2; exit 1 ;;
         esac
         seen_nix_names="$seen_nix_names$packageName "
         dependencies=$(printf '%s' "$dependencies" | jq -c --arg name "$packageName" --arg path "$effectiveRoot" '. + {($name): $path}')
@@ -247,12 +247,12 @@ let
           case "$explicitPatch" in
             /*)
               if [ ! -f "$explicitPatch" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName does not exist" >&2
+                echo "dsh profile: explicit patchPath $explicitPatch for $packageName does not exist" >&2
                 exit 1
               fi
               patchBase=$(basename "$explicitPatch")
               if [ "$patchBase" = "package.json" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName must not be package.json" >&2
+                echo "dsh profile: explicit patchPath $explicitPatch for $packageName must not be package.json" >&2
                 exit 1
               fi
               mkdir -p "$dest"
@@ -273,12 +273,12 @@ let
             *)
               case "$explicitPatch" in
                 *".."* )
-                  echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName must stay inside the package" >&2
+                  echo "dsh profile: explicit patchPath $explicitPatch for $packageName must stay inside the package" >&2
                   exit 1
                   ;;
               esac
               if [ ! -f "$effectiveRoot/$explicitPatch" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName not found in $effectiveRoot" >&2
+                echo "dsh profile: explicit patchPath $explicitPatch for $packageName not found in $effectiveRoot" >&2
                 exit 1
               fi
               mkdir -p "$dest"
@@ -302,12 +302,12 @@ let
         # Auto-installed peers stay in the closure, never in the profile.
         while IFS= read -r packageName; do
           case "$seen_nix_names" in
-            *" $packageName "*) echo "dsh profile bundle: duplicate plugin packageName $packageName (spec vs nix)" >&2; exit 1 ;;
+            *" $packageName "*) echo "dsh profile: duplicate plugin packageName $packageName (spec vs nix)" >&2; exit 1 ;;
           esac
           seen_nix_names="$seen_nix_names$packageName "
           src="$specRoot/node_modules/$packageName"
           if [ ! -e "$src" ]; then
-            echo "dsh profile bundle: spec package $packageName missing from spec closure" >&2
+            echo "dsh profile: spec package $packageName missing from spec closure" >&2
             exit 1
           fi
           parent=$(dirname "$packageName")
@@ -323,7 +323,6 @@ let
     '';
 in
 {
-  inherit mkProfileBundle buildProfileBundle;
-  mkProfile = mkProfileBundle;
+  inherit mkProfile buildProfileBundle;
   buildProfile = buildProfileBundle;
 }

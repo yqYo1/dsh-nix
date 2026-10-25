@@ -1,5 +1,5 @@
 { profilesLib, inBoxNames }:
-profilesLib.mkProfileBundle {
+profilesLib.mkProfile {
   name = "web";
   inherit inBoxNames;
   plugins = [

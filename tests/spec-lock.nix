@@ -47,9 +47,9 @@ let
 
   zzzSpec = "file:" + toString ./fixtures/synth-zzz-branch;
   aaaSpec = "file:" + toString ./fixtures/synth-aaa-leaf;
-  nixSibling = pluginsLib.mkPluginBundle { path = ./fixtures/synth-nix-sibling; };
+  nixSibling = pluginsLib.mkBundle { path = ./fixtures/synth-nix-sibling; };
 
-  orderedProfile = profilesLib.mkProfileBundle {
+  orderedProfile = profilesLib.mkProfile {
     name = "spec-lock-ordered";
     inherit inBoxNames;
     plugins = [
@@ -87,14 +87,14 @@ let
     }
     EOF
   '';
-  collisionProfile = profilesLib.mkProfileBundle {
+  collisionProfile = profilesLib.mkProfile {
     name = "spec-lock-collision";
     inherit inBoxNames;
     plugins = [
       zzzSpec
       nixSibling
       aaaSpec
-      (pluginsLib.mkPluginBundle { path = collidingDrv; })
+      (pluginsLib.mkBundle { path = collidingDrv; })
     ];
     specsLock = synthLock;
     specsHash = synthHash;
@@ -126,7 +126,7 @@ assert collisionProfile.specsHash == orderedProfile.specsHash;
 assert orderedProfile.specsLock != null;
 # NOTE: project `.specsLock`: the fail-closed throw lives in a lazy let
 # binding, and tryEval alone only forces weak head normal form.
-assert !(builtins.tryEval (profilesLib.mkProfileBundle {
+assert !(builtins.tryEval (profilesLib.mkProfile {
   name = "spec-lock-nolock";
   inherit inBoxNames;
   plugins = [ "@deepseek-ai/dsh-base" ];

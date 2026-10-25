@@ -10,8 +10,9 @@
 # on every boot), comparing a stamp against the artifact store path.
 #
 # `plugins` accepts forms in one ordered list:
-#   - official bundle names ("@deepseek-ai/dsh-base": the shipped app/opt-in
-#     bundles and the on-demand subagent bundles this repository builds)
+#   - official bundle names ("@deepseek-ai/dsh-base": the bundles of the
+#     shipped profile templates, the shipped optional bundles, and the
+#     on-demand subagent bundles this repository builds)
 #                                      name only, nothing to package
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
@@ -46,12 +47,13 @@ let
         default = [ ];
         description = ''
           Ordered plugin list. Each entry is one of: an official bundle name —
-          the shipped app and dsh-experimental-* bundles (resolved from the
-          installation) and the two on-demand subagent bundles (built by this
-          repository from their pinned npm releases) — with nothing to package
-          for users; a pnpm spec string (resolved at build time; pin with
-          specsLock/specsHash), a Nix package (a user-declared derivation such
-          as pkgs.buildNpmPackage), or a local plugin path.
+          the bundles of the shipped profile templates and the
+          dsh-experimental-* optional bundles (resolved from the installation)
+          and the two on-demand subagent bundles (built by this repository from
+          their pinned npm releases) — with nothing to package for users; a pnpm
+          spec string (resolved at build time; pin with specsLock/specsHash), an
+          out-of-tree Nix package (a derivation such as pkgs.buildNpmPackage), or
+          a local plugin path.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -88,7 +90,7 @@ let
   };
 
   declarations = lib.mapAttrs (name: p:
-    profilesLib.mkProfileBundle {
+    profilesLib.mkProfile {
       inherit name;
       inherit (p) userPatchesFile userPatches specsHash specsLock;
       plugins = p.plugins;

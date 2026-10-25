@@ -70,13 +70,13 @@ let
     printf '%s\n' 'module.exports = 42;' > "$out/index.js"
   '';
 
-  ordered = profilesLib.mkProfileBundle {
+  ordered = profilesLib.mkProfile {
     name = "regression-ordered";
     inherit inBoxNames;
     plugins = [
       "@deepseek-ai/dsh-web-app"
       "@deepseek-ai/dsh-base"
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
       bundleDrv
       plainDrv
     ];
@@ -87,11 +87,11 @@ let
     specsHash = "";
   };
 
-  inline = profilesLib.mkProfileBundle {
+  inline = profilesLib.mkProfile {
     name = "regression-inline";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
     ];
     userPatchesFile = null;
     userPatches = [
@@ -102,11 +102,11 @@ let
 
   # Narrow explicit-patchPath case: plain manifest has no bundle.patch, but
   # an explicit patchPath must force layer membership at runtime.
-  forced = profilesLib.mkProfileBundle {
+  forced = profilesLib.mkProfile {
     name = "regression-forced";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = plainDrv; patchPath = "cordis.patch.yml"; })
+      (pluginsLib.mkBundle { path = plainDrv; patchPath = "cordis.patch.yml"; })
     ];
     userPatchesFile = null;
     userPatches = [ ];
@@ -127,22 +127,22 @@ let
   #   the stale in-package file before cp, else cp writes through a symlink
   #   into the read-only store (or same-file error). This leg fails without
   #   the guard and is the real regression proof.
-  external = profilesLib.mkProfileBundle {
+  external = profilesLib.mkProfile {
     name = "regression-external";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = plainDrv; patchPath = ./fixtures/external-patch/cordis.patch.yml; })
+      (pluginsLib.mkBundle { path = plainDrv; patchPath = ./fixtures/external-patch/cordis.patch.yml; })
     ];
     userPatchesFile = null;
     userPatches = [ ];
     specsHash = "";
   };
 
-  externalColliding = profilesLib.mkProfileBundle {
+  externalColliding = profilesLib.mkProfile {
     name = "regression-external-colliding";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = plainDrv; patchPath = "${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml"; })
+      (pluginsLib.mkBundle { path = plainDrv; patchPath = "${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml"; })
     ];
     userPatchesFile = null;
     userPatches = [ ];
@@ -156,17 +156,17 @@ let
   externalCollidingArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = externalColliding; };
 
   # Eval-time duplicate names (path bundles) must still throw.
-  duplicateEval = builtins.tryEval (profilesLib.mkProfileBundle {
+  duplicateEval = builtins.tryEval (profilesLib.mkProfile {
     name = "dup";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
     ];
   });
 
   # Two deferred (null) names must NOT throw at eval; runtime resolves them.
-  deferredEval = builtins.tryEval (profilesLib.mkProfileBundle {
+  deferredEval = builtins.tryEval (profilesLib.mkProfile {
     name = "deferred-ok";
     inherit inBoxNames;
     plugins = [ bundleDrv plainDrv ];
@@ -175,7 +175,7 @@ let
   # Actual duplicate raw names: eval defers (both null), but the build must
   # fail loud on the resolved duplicate. Exposed separately so callers can
   # exercise the malformed failure without breaking `check`.
-  duplicateProfile = profilesLib.mkProfileBundle {
+  duplicateProfile = profilesLib.mkProfile {
     name = "regression-duplicate";
     inherit inBoxNames;
     plugins = [ bundleDrv bundleDrv ];

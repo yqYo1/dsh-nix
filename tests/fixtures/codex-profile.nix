@@ -8,7 +8,7 @@
 # the full graph; the runtime FOD hash is discovered by building with
 # specsHash = "" and replacing it with the reported `got: sha256-…` value.
 { profilesLib, inBoxNames }:
-profilesLib.mkProfileBundle {
+profilesLib.mkProfile {
   name = "codex";
   inherit inBoxNames;
   plugins = [

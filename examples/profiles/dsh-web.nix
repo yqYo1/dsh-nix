@@ -7,14 +7,14 @@
 if ! builtins.pathExists ../../dsh/packages/bundle/base then
   null
 else
-  profilesLib.mkProfileBundle {
+  profilesLib.mkProfile {
     inherit inBoxNames;
     name = "dsh-web";
     plugins = [
-      (plugins.mkPluginBundle {
+      (plugins.mkBundle {
         path = ../../dsh/packages/bundle/base;
       })
-      (plugins.mkPluginBundle {
+      (plugins.mkBundle {
         path = ../../dsh/packages/bundle/web-app;
       })
     ];

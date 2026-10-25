@@ -1,11 +1,11 @@
-# Nix-native DSH profile packager.
+# Nix-native DSH profile builder.
 #
-# A PLUGIN bundle is a plain (often non-flake) package directory: it carries
-# its own package.json (with `dsh.bundle.patch`) and cordis.patch.yml.  We
-# import it verbatim — we never transcribe its rows.
-# A PROFILE bundle is the artifact we build: an immutable DSH profile
-# directory (package.json manifest + node_modules view) that `dsh --profile`
-# consumes.  Cordis stays DSH's runtime; this flake does not reimplement it.
+# A BUNDLE is a plain (often non-flake) package directory: it carries its own
+# package.json (with `dsh.bundle.patch`) and cordis.patch.yml.  We import it
+# verbatim — we never transcribe its rows.
+# A PROFILE is the artifact we build: an immutable DSH profile directory
+# (package.json manifest + node_modules view) that `dsh --profile` consumes.
+# Cordis stays DSH's runtime; this flake does not reimplement it.
 #
 #   nix flake check                         assertions + profile artifact shape
 #   nix eval .#profiles.tui --json          the declared profile (ordered layers)
@@ -16,7 +16,7 @@
 # bundles (non-flake repo input) with zero transcription; wire it in when a
 # dsh checkout is visible to the flake.
 {
-  description = "Nix-native DSH profile packager";
+  description = "Nix-native DSH profile builder";
 
   nixConfig = {
     extra-substituters = [
@@ -81,11 +81,11 @@
       # under `packages/bundle/` and `packages/experimental/` that declares
       # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
       # users reference them bare, with nothing to package.  Mirrors upstream
-      # `PROFILE_TEMPLATES` app bundles plus `OPTIONAL_BUNDLES` (opt-in,
-      # switched off by default in upstream templates).  The
+      # `PROFILE_TEMPLATES` bundles plus `OPTIONAL_BUNDLES` (shipped switched
+      # off, offered by the plugin manager).  The
       # `official-bundles` check fails on drift with the pinned dsh source.
       inBoxNames = [
-        # App bundles (upstream profile templates).
+        # Bundles of the shipped profile templates (`PROFILE_TEMPLATES`).
         "@deepseek-ai/dsh-base"
         "@deepseek-ai/dsh-web-app"
         "@deepseek-ai/dsh-headless"
@@ -691,7 +691,7 @@
           # exactly like the plain web profile.
           profile-boot-experimental =
             let
-              profile = profilesLib.mkProfileBundle {
+              profile = profilesLib.mkProfile {
                 name = "experimental";
                 plugins = [
                   "@deepseek-ai/dsh-base"
@@ -724,7 +724,7 @@
                   exit 1
                 fi
                 grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
-                # A dropped opt-in layer would still let the boot pass; assert
+                # A dropped optional layer would still let the boot pass; assert
                 # the launcher reported no skipped bundle.
                 if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
                   cat "$TMPDIR/check.log" >&2
@@ -741,7 +741,7 @@
           # compose the row and boot CHECK-OK.
           profile-official-plugin =
             let
-              profile = profilesLib.mkProfileBundle {
+              profile = profilesLib.mkProfile {
                 name = "official-plugin";
                 plugins = [
                   "@deepseek-ai/dsh-base"
@@ -796,7 +796,7 @@
           # skipped bundle.
           profile-official-on-demand =
             let
-              profile = profilesLib.mkProfileBundle {
+              profile = profilesLib.mkProfile {
                 name = "official-on-demand";
                 plugins = [
                   "@deepseek-ai/dsh-base"

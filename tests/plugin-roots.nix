@@ -16,7 +16,7 @@
 #   - zero or multiple direct candidates fail loud; deep transitive
 #     manifests (.../node_modules/.../node_modules/...) never count;
 #   - identity comes from the manifest `name` (never pname/store name);
-#     an explicit `mkPluginBundle packageName` override wins for the mapping;
+#     an explicit `mkBundle packageName` override wins for the mapping;
 #   - a relative `patchPath` string and an absolute external patch file stay
 #     preserved verbatim against the EFFECTIVE root (projected manifest
 #     declares exactly the selection, selected bytes beside it);
@@ -54,7 +54,7 @@ let
   pluginsLib = import ../lib/plugins.nix { inherit lib; };
   profilesLib = import ../lib/profiles.nix { inherit lib; };
 
-  mkProfile = name: plugins: profilesLib.mkProfileBundle {
+  mkProfile = name: plugins: profilesLib.mkProfile {
     inherit name plugins;
     inBoxNames = [ ];
     userPatchesFile = null;
@@ -160,13 +160,13 @@ let
   emptySubject = build (mkProfile "roots-empty" [ emptyPkg ]);
   ambiguousSubject = build (mkProfile "roots-ambiguous" [ ambiguousPkg ]);
   overrideSubject = build (mkProfile "roots-override" [
-    (pluginsLib.mkPluginBundle { path = scopedPkg; packageName = "@rt/override-name"; })
+    (pluginsLib.mkBundle { path = scopedPkg; packageName = "@rt/override-name"; })
   ]);
   relativeSubject = build (mkProfile "roots-relative-patch" [
-    (pluginsLib.mkPluginBundle { path = patchPkg; patchPath = "cordis.patch.yml"; })
+    (pluginsLib.mkBundle { path = patchPkg; patchPath = "cordis.patch.yml"; })
   ]);
   externalSubject = build (mkProfile "roots-external-patch" [
-    (pluginsLib.mkPluginBundle { path = patchPkg; patchPath = externalPatch; })
+    (pluginsLib.mkBundle { path = patchPkg; patchPath = externalPatch; })
   ]);
 
   # The ACTUAL rendered production builder commands (eval-time text only;
