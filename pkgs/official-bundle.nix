@@ -1,8 +1,8 @@
 # Build one pinned OFFICIAL on-demand dsh bundle from its published npm
 # tarball: the package's own files plus its production dependency closure, so
-# a profile links it like any Nix-package plugin.  The version, tarball hash,
+# a profile links it like any Nix-provided plugin package.  The version, tarball hash,
 # committed lockfile and pnpm-store hash are pinned by
-# lib/official-plugins.nix; users only ever name the package.
+# lib/official-bundles.nix; users only ever name the package.
 { lib
 , stdenvNoCC
 , runCommand
@@ -57,7 +57,7 @@ let
   };
 in
 stdenvNoCC.mkDerivation {
-  pname = "dsh-official-plugin-${short}";
+  pname = "dsh-official-bundle-${short}";
   inherit version;
 
   src = projectSrc;

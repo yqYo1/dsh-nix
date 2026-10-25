@@ -8,7 +8,7 @@
 # Cordis stays DSH's runtime; this flake does not reimplement it.
 #
 #   nix flake check                         assertions + profile artifact shape
-#   nix eval .#profiles.tui --json          the declared profile (ordered layers)
+#   nix eval .#profiles.tui --json          the declared profile (ordered bundles)
 #   nix build .#packages.x86_64-linux.tui   the immutable profile directory
 #   ./scripts/profile-smoke.sh              boot it with the packaged dsh CLI
 #
@@ -62,20 +62,20 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
-      officialPlugins = import ./lib/official-plugins.nix { inherit lib; };
+      officialBundles = import ./lib/official-bundles.nix { inherit lib; };
       # Pinned builds of the official ON-DEMAND bundles (published npm
       # releases): profiles may name them exactly like shipped bundles.
-      officialPluginsFor = system:
+      officialBundlesFor = system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
-        lib.genAttrs (lib.attrNames officialPlugins.pins) (name:
-          pkgs.callPackage ./pkgs/official-plugin.nix (
+        lib.genAttrs (lib.attrNames officialBundles.pins) (name:
+          pkgs.callPackage ./pkgs/official-bundle.nix (
             {
               npmName = name;
               fetchPnpmDeps = fetchPnpmDepsFor system;
             }
-            // officialPlugins.pins.${name}
+            // officialBundles.pins.${name}
           ));
       # The official bundles shipped by the dsh installation: every package
       # under `packages/bundle/` and `packages/experimental/` that declares
@@ -132,7 +132,7 @@
         pluginsLib = plugins;
         inherit profilesLib inBoxNames;
         dshSrc = dsh;
-        inherit fetchPnpmDepsFor officialPluginsFor;
+        inherit fetchPnpmDepsFor officialBundlesFor;
       };
 
       # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
@@ -178,22 +178,22 @@
           default = dshPackage;
           dsh = dshPackage;
 
-          tui = profilesLib.buildProfileBundle {
+          tui = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.tui;
           };
 
-          tui-spec = profilesLib.buildProfileBundle {
+          tui-spec = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.tui-spec;
           };
 
-          web = profilesLib.buildProfileBundle {
+          web = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.web;
           };
 
-          headless = profilesLib.buildProfileBundle {
+          headless = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.headless;
           };
@@ -206,7 +206,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
           tuiArtifact = self.packages.${system}.tui;
           tuiSpecArtifact = self.packages.${system}.tui-spec;
-          expectedLayers = builtins.toJSON [ "@dsh-nix/tui-core" ];
+          expectedBundles = builtins.toJSON [ "@dsh-nix/tui-core" ];
         in
         {
           profile-tui =
@@ -216,9 +216,9 @@
               }
               ''
                 package_json=${tuiArtifact}/package.json
-                actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
-                expected_layers=${lib.escapeShellArg expectedLayers}
-                test "$actual_layers" = "$expected_layers"
+                actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
+                expected_bundles=${lib.escapeShellArg expectedBundles}
+                test "$actual_bundles" = "$expected_bundles"
 
                 test -L ${tuiArtifact}/node_modules/@dsh-nix/tui-core
 
@@ -232,9 +232,9 @@
               }
               ''
                 package_json=${tuiSpecArtifact}/package.json
-                actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
-                expected_layers=${lib.escapeShellArg expectedLayers}
-                test "$actual_layers" = "$expected_layers"
+                actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
+                expected_bundles=${lib.escapeShellArg expectedBundles}
+                test "$actual_bundles" = "$expected_bundles"
                 test -L ${tuiSpecArtifact}/node_modules/@dsh-nix/tui-core
                 # New contract: exact-direct projection. The scope parent
                 # is a real directory holding a single package link; the
@@ -288,7 +288,7 @@
           # Official on-demand pins must track the pinned dsh tag: the pinned
           # names equal the upstream ON_DEMAND_BUNDLES list, every pin version
           # equals the source version, and no pin ships discovery placeholders.
-          # A tag bump that forgets lib/official-plugins.nix fails loud here.
+          # A tag bump that forgets lib/official-bundles.nix fails loud here.
           official-pins =
             pkgs.runCommand "dsh-official-pins-check"
               {
@@ -296,7 +296,7 @@
                 src = dsh;
                 pins = builtins.toJSON (builtins.mapAttrs (_: p: {
                   inherit (p) version tarballHash depsHash;
-                }) officialPlugins.pins);
+                }) officialBundles.pins);
               }
               ''
                 version=$(jq -r .version "$src/apps/cli/package.json")
@@ -313,7 +313,7 @@
                   > "$TMPDIR/pins.tsv"
                 while IFS=$'\t' read -r name pin_version tarball_hash deps_hash; do
                   if [ "$pin_version" != "$version" ]; then
-                    echo "official-pins: $name pinned at $pin_version but the dsh source is $version; refresh lib/official-plugins.nix" >&2
+                    echo "official-pins: $name pinned at $pin_version but the dsh source is $version; refresh lib/official-bundles.nix" >&2
                     exit 1
                   fi
                   case "$tarball_hash" in
@@ -408,7 +408,7 @@
               profile = import ./tests/fixtures/codex-profile.nix {
                 inherit profilesLib inBoxNames;
               };
-              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
             in
             pkgs.runCommand "dsh-profile-codex-check"
               {
@@ -686,8 +686,8 @@
                 touch "$out"
               '';
 
-          # Opt-in official bundles need no packaging: base + web-app plus two
-          # experimental layers (session-search, the worktree tool) must boot
+          # Optional official bundles need no packaging: base + web-app plus two
+          # experimental bundles (session-search, the worktree tool) must boot
           # exactly like the plain web profile.
           profile-boot-experimental =
             let
@@ -701,7 +701,7 @@
                 ];
                 inherit inBoxNames;
               };
-              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
             in
             pkgs.runCommand "dsh-profile-boot-experimental-check"
               {
@@ -712,7 +712,7 @@
                 mkdir -p "$home/profiles"
                 cp -a ${artifact} "$home/profiles/experimental"
                 chmod -R u+w "$home/profiles/experimental"
-                # Composition is exact: all four declared layers, order kept.
+                # Composition is exact: all four declared bundles, order kept.
                 jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-session-search", "@deepseek-ai/dsh-experimental-tool-worktree"]' \
                   "$home/profiles/experimental/package.json" >/dev/null
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
@@ -724,7 +724,7 @@
                   exit 1
                 fi
                 grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
-                # A dropped optional layer would still let the boot pass; assert
+                # A dropped optional bundle would still let the boot pass; assert
                 # the launcher reported no skipped bundle.
                 if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
                   cat "$TMPDIR/check.log" >&2
@@ -736,8 +736,8 @@
           # An official cordis plugin package that ships without a bundle of
           # its own mounts without packaging: a patch row in the profile's own
           # layer names the package and the name resolves from the built
-          # installation (no bundle, no Nix package).  base + web-app + one
-          # official tool plugin (str-replace-editor, no dsh.bundle) must
+          # installation (no bundle, no extra Nix packaging).  base + web-app +
+          # one official tool plugin (str-replace-editor, no dsh.bundle) must
           # compose the row and boot CHECK-OK.
           profile-official-plugin =
             let
@@ -759,7 +759,7 @@
                 ];
                 inherit inBoxNames;
               };
-              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
             in
             pkgs.runCommand "dsh-profile-official-plugin-check"
               {
@@ -804,10 +804,10 @@
                   "@deepseek-ai/dsh-subagent-codex"
                   "@deepseek-ai/dsh-subagent-claude-code"
                 ];
-                officialPlugins = officialPluginsFor system;
+                officialBundles = officialBundlesFor system;
                 inherit inBoxNames;
               };
-              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
             in
             pkgs.runCommand "dsh-profile-official-on-demand-check"
               {

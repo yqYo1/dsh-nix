@@ -12,7 +12,7 @@ let
       packagePath = if builtins.isPath path then builtins.path { inherit path; } else path;
       # Only local directories are inspectable at evaluation time.  A raw
       # derivation (or any non-path package) defers package.json name/patch
-      # resolution to build time, where buildProfileBundle reads package.json
+      # resolution to build time, where buildProfile reads package.json
       # with jq (no IFD).  An explicit patchPath forces layer membership at
       # build time; otherwise the manifest's dsh.bundle.patch declaration
       # decides (plain deps stay inactive).
@@ -31,7 +31,7 @@ let
       resolvedPackageName = if packageName != null then packageName else manifest.name or null;
       # Raw Nix packages (derivations) are not inspectable at evaluation time:
       # reading their package.json would be IFD.  Defer the missing-name
-      # error to buildProfileBundle, which reads package.json at build time.
+      # error to buildProfile, which reads package.json at build time.
       checkedPackageName =
         if resolvedPackageName == null || resolvedPackageName == "" then
           if manifest == null then null
@@ -64,7 +64,7 @@ let
   classifyPlugin =
     {
       inBoxNames ? [ ],
-      officialPlugins ? { },
+      officialBundles ? { },
       plugin,
     }:
     if builtins.isString plugin then
@@ -73,11 +73,11 @@ let
           kind = "in-box";
           name = plugin;
         }
-      else if officialPlugins ? ${plugin} then
+      else if officialBundles ? ${plugin} then
         {
           kind = "nix";
           plugin = mkBundle {
-            path = officialPlugins.${plugin};
+            path = officialBundles.${plugin};
             packageName = plugin;
           };
         }

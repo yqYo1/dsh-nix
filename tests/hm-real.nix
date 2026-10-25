@@ -326,8 +326,8 @@ let
   # no installed-root projection at declaration time).
   userNpmDeclDirect =
     let decls = mkDecls gen1cfg.profiles;
-    in decls.user-npm.nixPlugins != [ ]
-      && (builtins.head decls.user-npm.nixPlugins).packagePath == userNpmPkg;
+    in decls.user-npm.nixEntries != [ ]
+      && (builtins.head decls.user-npm.nixEntries).packagePath == userNpmPkg;
 
   # Expected profile artifacts, rebuilt from identical declarations so the
   # stamp assertions compare exact store paths (module builds the same).
@@ -341,7 +341,7 @@ let
     # resolve and reuse a cached broken FOD.
     specsLock = null;
   } // (if builtins.isAttrs p then p else { plugins = p; }))) defs;
-  mkArtifacts = decls: lib.mapAttrs (name: d: profilesLib.buildProfileBundle { inherit pkgs; profile = d; }) decls;
+  mkArtifacts = decls: lib.mapAttrs (name: d: profilesLib.buildProfile { inherit pkgs; profile = d; }) decls;
 
   artifacts1 = mkArtifacts (mkDecls gen1cfg.profiles);
   artifacts2 = mkArtifacts (mkDecls gen2cfg.profiles);
@@ -510,7 +510,7 @@ let
         || fail "user-npm stamp != gen1 artifact outPath"
       jq -e '.dsh.profile.bundles == ["@dsh-poc/user-npm-plugin"]' \
         "$homeA/.dsh/profiles/user-npm/package.json" > /dev/null \
-        || fail "user-npm bundles != manifest-declared layer"
+        || fail "user-npm bundles != manifest-declared bundle"
       jq --arg want "$userNpmPkgOut/lib/node_modules/@dsh-poc/user-npm-plugin" \
         -e '.dependencies."@dsh-poc/user-npm-plugin" == $want' \
         "$homeA/.dsh/profiles/user-npm/package.json" > /dev/null \

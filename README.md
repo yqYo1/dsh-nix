@@ -5,29 +5,29 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile builder**: resolves plugin dependencies and composes profiles at build time.
-- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: shipped bundles resolve from the installation and the two on-demand subagent bundles are built by this repository. Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
+- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the two on-demand subagent bundles are built by this repository. Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
 - **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
 
 ## Plugin composition
 
-DSH has two units. A **cordis plugin** is a row-level component; every part of the product is one. A **bundle** is the installable plugin unit: a package that declares `dsh.bundle`, whose patch file is an ordered layer of rows. `dsh plugin` and the plugin market only act on bundles, and a package without `dsh.bundle` installs as a plain dependency (no layer).
+DSH has two units. A **cordis plugin** is a runtime component; every part of the product is one, and patch rows mount plugins. A **bundle** is the installable plugin unit: a package that declares `dsh.bundle`, whose patch file is an ordered layer of rows. `dsh plugin` and the plugin market only act on bundles, and a package without `dsh.bundle` installs as a plain dependency (no layer).
 
 The `plugins` list follows that model: an entry that declares `dsh.bundle` contributes a layer, and a package without it is a dependency that rows can name. Profile `plugins` accept the following forms, mixed in declaration order:
 
 - **official bundle**: a name such as `"@deepseek-ai/dsh-base"` — nothing to package (see [Official bundles](#official-bundles)).
 - **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
-- **Nix package**: a user-declared derivation such as `pkgs.buildNpmPackage { ... }`; linked into the profile with its built dependency closure intact.
-- **Nix path**: a prebuilt plugin directory with `package.json` at its root, such as `./my-plugin`; required runtime dependencies must be contained in the artifact.
+- **Nix package**: an out-of-tree derivation such as `pkgs.buildNpmPackage { ... }`; linked into the profile with its built dependency closure intact.
+- **Nix path**: a prebuilt plugin directory with `package.json` at its root, such as `./my-plugin`; required runtime dependencies must be contained in that directory.
 
-Layers are registered from each package's `dsh.bundle.patch` declaration.
-`plugins` declaration order is the layer order and does not depend on pnpm manifest or lockfile key order.
-Spec transitive/peer dependencies stay in the runtime graph and are never promoted to direct profile plugins or layers.
-Scoped packages are linked per package inside their scope directory, so they coexist with Nix plugins in the same scope.
-If a spec and a Nix plugin share a package name, the build fails.
+Each entry that declares `dsh.bundle.patch` contributes a layer.
+Bundle declaration order is the layer order and does not depend on pnpm manifest or lockfile key order.
+Spec transitive/peer dependencies stay in the runtime graph and are never promoted to direct profile plugins or bundles.
+Scoped packages are linked per package inside their scope directory, so they coexist with Nix-provided plugins in the same scope.
+If a spec and a Nix-provided plugin share a package name, the build fails.
 
 ### Official bundles
 
-The official plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them.
+The official plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them. The 18 installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
 
 - **bundles of the shipped profile templates** (upstream `PROFILE_TEMPLATES`, resolved from the installation):
   - `@deepseek-ai/dsh-base`
@@ -130,7 +130,7 @@ programs.dsh = {
 };
 ```
 
-Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical artifact via its stamp.
+Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical profile directory via its stamp.
 Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved.
 
 ```sh
@@ -155,7 +155,7 @@ Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
 
 A `pkgs.buildNpmPackage` derivation is passed directly in `plugins`.
 The source, `package-lock.json`, `npmDepsHash`, and build settings are managed by the user's package declaration; dsh-nix composes the finished plugin into the profile.
-Profiles that declare only Nix plugins do not need `specsLock`/`specsHash`.
+Profiles that declare only Nix-provided plugins do not need `specsLock`/`specsHash`.
 When spec plugins are mixed in, specify them as before for the spec side's dependency pinning.
 
 The example below adds to the configuration importing the Home Manager module from the previous section.
@@ -184,8 +184,8 @@ in
 Put the real hash reported by the first build's `got:` into `npmDepsHash`, then rebuild the same declaration to confirm success.
 For plugins that need compilation, omit `dontNpmBuild` so the required npm build scripts run.
 
-The plugin root is resolved at build time.
-If the artifact has `package.json` at its top level, that directory is preferred; otherwise the direct package under `lib/node_modules/<name>/package.json` (including scoped packages) is searched.
+The plugin's effective root is resolved at build time.
+If the plugin directory has `package.json` at its top level, that directory is preferred; otherwise the direct package under `lib/node_modules/<name>/package.json` (including scoped packages) is searched.
 Zero or multiple candidates fail the build.
 The package name is read from the selected `package.json` `name`, not the derivation `pname`.
 The plugin's `node_modules` is preserved without moving or flattening, so transitive dependencies resolve from the plugin's existing layout.
@@ -213,7 +213,7 @@ For reproducible setups, specify both `specsLock` and `specsHash`.
 ## Regression verification
 
 ```sh
-# Public flake: profile artifacts, rc.2 boot, Home Manager-independent checks
+# Public flake: profile directories, rc.2 boot, Home Manager-independent checks
 nix flake check --accept-flake-config --no-update-lock-file --no-write-lock-file
 # Dedicated test flake: evaluation and sandbox activation on the pinned real Home Manager
 nix flake check ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file
@@ -231,12 +231,12 @@ The user's Home Manager choice and how `homeManagerModules.dsh` is imported do n
 After updating the public flake's inputs/lock, also run `nix flake lock ./tests --update-input dsh-nix` to sync the test-side graph (a plain lock cannot see the moved `path:../.` input).
 The DSH updater syncs both locks and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
-- **validator/artifacts**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
+- **validator/profile shape**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
 - **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and pin-checks the on-demand bundles against the tag (name set, version, non-placeholder hashes).
 - **Bundle and row composition**: boots a profile composed with two optional bundles, boots a profile that mounts an installed plugin package by a user patch row, and builds both on-demand subagent bundles (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
 - **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
 - **Out-of-tree npm plugin packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
-- **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and user-declared npm packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
+- **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and out-of-tree npm plugin packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
 - **HM host**: isolates HOME/XDG/Nix state in scratch and installs the given packages with the real daemon and driver 0, verifying real imports of the materialised npm plugin, its CLI, and rc.2 boot. External guards confirm the real user's profiles, gcroots, and app data remain unchanged.
 
 `scripts/check-profile.mjs` uses the pinned rc.2 path `loadProfile` → `createRuntimeResolution` → `readProfilePatches` → `boot`.

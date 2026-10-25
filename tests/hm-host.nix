@@ -131,7 +131,7 @@ let
 
   # Expected immutable profile artifact, as a store-path STRING only
   # (toString never realises: no build happens in this evaluation).
-  expectedAgentArtifact = toString (profilesLib.buildProfileBundle {
+  expectedAgentArtifact = toString (profilesLib.buildProfile {
     inherit pkgs;
     profile = profilesLib.mkProfile ({
       name = "agent";
@@ -142,13 +142,13 @@ let
   # bundle (store-path string only, same as above). The host script asserts
   # the activated stamp lands exactly here, proving the module translated
   # the shared declaration faithfully with the lock intact.
-  expectedCodexArtifact = toString (profilesLib.buildProfileBundle {
+  expectedCodexArtifact = toString (profilesLib.buildProfile {
     inherit pkgs;
     profile = codexBundle;
   });
   # Expected immutable user-npm artifact, built from THE SAME module
   # declaration above (store-path string only, same as above).
-  expectedUserNpmArtifact = toString (profilesLib.buildProfileBundle {
+  expectedUserNpmArtifact = toString (profilesLib.buildProfile {
     inherit pkgs;
     profile = profilesLib.mkProfile ({
       name = "user-npm";

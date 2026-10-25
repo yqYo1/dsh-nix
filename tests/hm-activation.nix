@@ -62,7 +62,7 @@ let
       inherit (p) plugins userPatchesFile userPatches specsHash specsLock;
       inherit inBoxNames;
     }) normalized;
-  artifacts = lib.mapAttrs (name: d: profilesLib.buildProfileBundle { inherit pkgs; profile = d; }) declarations;
+  artifacts = lib.mapAttrs (name: d: profilesLib.buildProfile { inherit pkgs; profile = d; }) declarations;
 
   activationValue = evaluated.config.home.activation.dshProfiles;
   activation = if builtins.isString activationValue then activationValue else activationValue.data;

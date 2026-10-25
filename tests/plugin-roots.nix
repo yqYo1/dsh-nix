@@ -8,7 +8,7 @@
 # A passing build writes `$out/passed` and per-leg logs under `$out/logs`.
 #
 # Policy under test (lib/profiles.nix `resolve_effective_root` + name/patch
-# selection in `buildProfileBundle`):
+# selection in `buildProfile`):
 #   - an existing root package.json wins, whether zero or two installed
 #     candidates sit under lib/node_modules;
 #   - otherwise exactly one DIRECT lib/node_modules/<name> or
@@ -24,7 +24,7 @@
 #
 # Execution model (no reimplemented resolver, no snapshot-string proofs):
 # every leg executes the ACTUAL rendered production builder
-# (`subject.drvAttrs.buildCommand` of a real `buildProfileBundle`
+# (`subject.drvAttrs.buildCommand` of a real `buildProfile`
 # derivation) inside this check's sandbox as
 #   out=<scratch-candidate> bash -e -c <rendered buildCommand>
 # with pinned bash/stdenv + jq/coreutils/findutils on PATH. The rendered
@@ -61,7 +61,7 @@ let
     userPatches = [ ];
     specsHash = "";
   };
-  build = profile: profilesLib.buildProfileBundle { inherit pkgs profile; };
+  build = profile: profilesLib.buildProfile { inherit pkgs profile; };
 
   # Root manifest, zero installed candidates underneath.
   rootPkg = pkgs.runCommand "roots-mock-root" { } ''
@@ -269,7 +269,7 @@ let
         fail "unscoped leg leaked deep transitive dep"
       fi
       if jq -e '.dsh.profile.bundles | index("rt-deep")' "$cand/package.json" > /dev/null; then
-        fail "deep transitive dep activated as layer"
+        fail "deep transitive dep became a profile bundle"
       fi
       pass "label=unscoped: direct lib/node_modules/<name> accepted, deep transitive ignored"
 

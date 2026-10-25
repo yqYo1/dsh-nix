@@ -1,7 +1,7 @@
 # Home Manager module factory for `programs.dsh`.
 #
 # Declarative plugin management in the Thunderbird style: the module owns the
-# COMPOSITION layers under ~/.dsh (profiles/<name>/ + the home-level
+# COMPOSITION under ~/.dsh (profiles/<name>/ and the home-level
 # cordis.patch.yml), while the app owns its mutable data (settings.yaml after
 # seeding, .credentials.yaml, sessions/, storages/).
 #
@@ -33,7 +33,7 @@
 # pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
 # the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
 # main build.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null), officialPluginsFor ? (_: { }) }:
+{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null), officialBundlesFor ? (_: { }) }:
 
 { config, lib, pkgs, ... }:
 
@@ -95,11 +95,11 @@ let
       inherit (p) userPatchesFile userPatches specsHash specsLock;
       plugins = p.plugins;
       inherit inBoxNames;
-      officialPlugins = officialPluginsFor pkgs.stdenv.hostPlatform.system;
+      officialBundles = officialBundlesFor pkgs.stdenv.hostPlatform.system;
     }) cfg.profiles;
 
   artifacts = lib.mapAttrs (name: declaration:
-    profilesLib.buildProfileBundle { inherit pkgs; profile = declaration; }) declarations;
+    profilesLib.buildProfile { inherit pkgs; profile = declaration; }) declarations;
 
   # Profile names become a single pathname component under
   # ~/.dsh/profiles.  Validation mirrors upstream dsh (profile.ts): only

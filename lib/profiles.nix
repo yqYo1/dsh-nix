@@ -9,20 +9,20 @@ let
       name,
       plugins,
       inBoxNames ? [ ],
-      officialPlugins ? { },
+      officialBundles ? { },
       userPatchesFile ? null,
       userPatches ? [ ],
       specsHash ? "",
       specsLock ? null,
     }:
     let
-      classified = map (plugin: classifyPlugin { inherit inBoxNames officialPlugins plugin; }) plugins;
-      nixPlugins = map (entry: entry.plugin)
+      classified = map (plugin: classifyPlugin { inherit inBoxNames officialBundles plugin; }) plugins;
+      nixEntries = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
-      packageNames = map (plugin: plugin.packageName) nixPlugins;
+      packageNames = map (plugin: plugin.packageName) nixEntries;
       # Deferred (null) names from raw derivations resolve at build time from
       # package.json; they must not collide with each other here.  Check only
-      # the eval-known names now; buildProfileBundle enforces runtime
+      # the eval-known names now; buildProfile enforces runtime
       # uniqueness after resolution.
       knownPackageNames = builtins.filter (n: n != null && n != "") packageNames;
       checkedName =
@@ -50,11 +50,11 @@ let
       plugins = classified;
       inBox = map (entry: entry.name)
         (builtins.filter (entry: entry.kind == "in-box") classified);
-      inherit nixPlugins;
+      inherit nixEntries;
       inherit specs;
     };
 
-  buildProfileBundle =
+  buildProfile =
     { pkgs, profile }:
     let
       classified = profile.plugins;
@@ -112,7 +112,7 @@ let
       metadata=${lib.escapeShellArg (toString metadata)}
       specRoot=${lib.escapeShellArg specRootArg}
 
-      layers='[]'
+      bundles='[]'
       specIndex=0
       if [ -n "$specRoot" ]; then
         directCount=$(jq 'length' "$specRoot/direct-specs.json")
@@ -193,14 +193,14 @@ let
         kind=$(printf '%s' "$entry" | jq -r '.kind')
         case "$kind" in
           in-box)
-            layer=$(printf '%s' "$entry" | jq -r '.name')
+            bundle=$(printf '%s' "$entry" | jq -r '.name')
             ;;
           spec)
             # Declaration order comes from direct-specs.json (validated
             # against the installer importer), never from package.json key
             # order: pnpm insertion order is not the declaration order and
-            # auto-installed peers must never become layers.
-            layer=$(jq -r --argjson i "$specIndex" '.[$i].packageName' "$specRoot/direct-specs.json")
+            # auto-installed peers must never become profile bundles.
+            bundle=$(jq -r --argjson i "$specIndex" '.[$i].packageName' "$specRoot/direct-specs.json")
             specIndex=$((specIndex + 1))
             ;;
           nix)
@@ -208,14 +208,14 @@ let
             effectiveRoot=$(resolve_effective_root "$packagePath") || exit 1
             packageName=$(resolve_nix_name "$entry" "$effectiveRoot") || exit 1
             if is_nix_layer "$entry" "$effectiveRoot"; then
-              layer=$packageName
+              bundle=$packageName
             else
-              layer=""
+              bundle=""
             fi
             ;;
         esac
-        if [ -n "$layer" ]; then
-          layers=$(printf '%s' "$layers" | jq -c --arg layer "$layer" '. + [$layer]')
+        if [ -n "$bundle" ]; then
+          bundles=$(printf '%s' "$bundles" | jq -c --arg bundle "$bundle" '. + [$bundle]')
         fi
       done < <(jq -c '.classes[]' "$metadata")
 
@@ -243,7 +243,7 @@ let
           # project the package under node_modules with a manifest that
           # declares exactly the selected patch and the real patch bytes
           # beside it. A missing/escaping selection fails loud instead of a
-          # phantom layer rc.2 would skip.
+          # phantom bundle rc.2 would skip.
           case "$explicitPatch" in
             /*)
               if [ ! -f "$explicitPatch" ]; then
@@ -316,13 +316,12 @@ let
         done < <(jq -r '.[].packageName' "$specRoot/direct-specs.json")
       fi
 
-      jq -n --arg name ${lib.escapeShellArg profile.name} --argjson layers "$layers" --argjson dependencies "$dependencies" \
-        '{name: $name, version: "0.0.0", private: true, dsh: {profile: {bundles: $layers}}, dependencies: $dependencies}' > "$out/package.json"
+      jq -n --arg name ${lib.escapeShellArg profile.name} --argjson bundles "$bundles" --argjson dependencies "$dependencies" \
+        '{name: $name, version: "0.0.0", private: true, dsh: {profile: {bundles: $bundles}}, dependencies: $dependencies}' > "$out/package.json"
       printf '[]\n' > "$out/cordis.yml"
       ${if patchSource != null then ''cp ${lib.escapeShellArg (toString patchSource)} "$out/cordis.patch.yml"'' else ''printf '%s' ${lib.escapeShellArg patchText} > "$out/cordis.patch.yml"''}
     '';
 in
 {
-  inherit mkProfile buildProfileBundle;
-  buildProfile = buildProfileBundle;
+  inherit mkProfile buildProfile;
 }
