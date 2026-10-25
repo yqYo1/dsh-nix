@@ -20,6 +20,13 @@
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
 #
+# A profile with `template` set (or whose name is a shipped template and no
+# `plugins`) extends that template: the bundles come from the dsh
+# installation (PROFILE_TEMPLATES) at build time, `extraPlugins` appends
+# entries, and `userPatches` overrides only the rows it names.  A profile with
+# `plugins` set is fully custom and no template applies.  `enable = false`
+# removes a profile; the shipped templates are enabled by default.
+#
 # Official cordis plugin packages that ship without a bundle of their own
 # (for example `@deepseek-ai/dsh-tool-str-replace-editor`) are mounted with
 # `userPatches` rows named after the installed package
@@ -33,27 +40,73 @@
 # pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
 # the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
 # main build.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null), officialBundlesFor ? (_: { }) }:
+{ pluginsLib, profilesLib, inBoxNames, dshSrc, profileTemplates ? [ ], fetchPnpmDepsFor ? (_: null), officialBundlesFor ? (_: { }) }:
 
 { config, lib, pkgs, ... }:
 
 let
   cfg = config.programs.dsh;
 
+  # A profile named after a shipped template extends that template unless it
+  # sets `plugins` (full custom).  `template` selects one explicitly, which is
+  # also how a custom-named profile extends a template.
+  effectiveTemplate = name: p:
+    if p.template != null then p.template
+    else if p.plugins == null && builtins.elem name profileTemplates then name
+    else null;
+
+  templateReason = name: p:
+    let template = effectiveTemplate name p; in
+    if template != null && p.plugins != null then
+      "sets both plugins and template; use extraPlugins to extend a template"
+    else if template != null && !(builtins.elem template profileTemplates) then
+      "names unknown shipped profile template ${builtins.toJSON template}"
+    else if template == null && p.extraPlugins != [ ] then
+      "sets extraPlugins without a template; use plugins for a custom profile"
+    else
+      null;
+
+  checkedProfiles = lib.mapAttrs (name: p:
+    let reason = templateReason name p; in
+    if reason == null then p
+    else throw "programs.dsh: profile ${builtins.toJSON name} ${reason}") cfg.profiles;
+
   profileModule = lib.types.submodule {
     options = {
-      plugins = lib.mkOption {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether this profile is materialised under ~/.dsh/profiles. A disabled
+          profile is removed on activation, as if it were never declared.
+        '';
+      };
+      template = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          Shipped profile template to extend (one of the dsh PROFILE_TEMPLATES
+          names). Defaults to the profile name when it names a shipped template
+          and `plugins` is unset. Set it explicitly to extend a template under a
+          custom profile name.
+        '';
+      };
+      extraPlugins = lib.mkOption {
         type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
         default = [ ];
         description = ''
-          Ordered plugin list. Each entry is one of: an official bundle name —
-          the bundles of the shipped profile templates and the
-          dsh-experimental-* optional bundles (resolved from the installation)
-          and the two on-demand subagent bundles (built by this repository from
-          their pinned npm releases) — with nothing to package for users; a pnpm
-          spec string (resolved at build time; pin with specsLock/specsHash), an
-          out-of-tree Nix package (a derivation such as pkgs.buildNpmPackage), or
-          a local plugin path.
+          Entries appended after the template's bundles, for a profile that
+          extends a shipped template. Use `plugins` instead for a fully custom
+          profile; the two are mutually exclusive.
+        '';
+      };
+      plugins = lib.mkOption {
+        type = lib.types.nullOr (lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]));
+        default = null;
+        description = ''
+          Full custom plugin list. When set, the profile is entirely
+          user-defined and no template applies. To extend a shipped template,
+          set `template` and use `extraPlugins` instead.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -92,14 +145,15 @@ let
   declarations = lib.mapAttrs (name: p:
     profilesLib.mkProfile {
       inherit name;
-      inherit (p) userPatchesFile userPatches specsHash specsLock;
-      plugins = p.plugins;
+      inherit (p) userPatchesFile userPatches specsHash specsLock extraPlugins;
+      template = effectiveTemplate name p;
+      plugins = if p.plugins == null then [ ] else p.plugins;
       inherit inBoxNames;
       officialBundles = officialBundlesFor pkgs.stdenv.hostPlatform.system;
-    }) cfg.profiles;
+    }) (lib.filterAttrs (_: p: p.enable) checkedProfiles);
 
   artifacts = lib.mapAttrs (name: declaration:
-    profilesLib.buildProfile { inherit pkgs; profile = declaration; }) declarations;
+    profilesLib.buildProfile { inherit pkgs; profile = declaration; install = cfg.package; }) declarations;
 
   # Profile names become a single pathname component under
   # ~/.dsh/profiles.  Validation mirrors upstream dsh (profile.ts): only
@@ -244,7 +298,10 @@ in
 
     profiles = lib.mkOption {
       type = lib.types.attrsOf profileModule;
-      default = { };
+      # The shipped profile templates are installed by default, each without
+      # listing its bundles: the template definition comes from the dsh
+      # installation.  Disable one with profiles.<name>.enable = false.
+      default = lib.genAttrs profileTemplates (_: { });
       description = "DSH profiles materialised under ~/.dsh/profiles/<name>.";
     };
 

@@ -110,12 +110,20 @@ imports = [ inputs.dsh-nix.homeManagerModules.dsh ];
 
 programs.dsh = {
   enable = true;
-  profiles.headless = {
-    plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-headless" ];
-  };
-  profiles.web = {
-    plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
-  };
+  # The five shipped profile templates are installed by default, each without
+  # listing its bundles; disable one individually:
+  profiles.headless.enable = false;
+  # Extend a template: its bundles and settings stay, only the listed entries
+  # and patch rows are added/overridden.
+  profiles.web.extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+  profiles.web.userPatches = [
+    {
+      insert = [
+        { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
+      ];
+    }
+  ];
+  # A fully custom profile: no template; `plugins` is the whole composition.
   profiles.custom = {
     plugins = [
       "@deepseek-ai/dsh-base"
@@ -129,6 +137,13 @@ programs.dsh = {
   # settings = { ... }; # seeds ~/.dsh/settings.yaml only when it does not exist
 };
 ```
+
+`web`, `headless`, `sdk`, `sdk-minimal`, and `acp` are the shipped profile templates (upstream `PROFILE_TEMPLATES`).
+They are materialised by default and take their bundles from the dsh installation, so a template profile lists no bundles in user configuration and keeps the template's own settings.
+`enable = false` removes one individually.
+A profile that sets `template` or whose name is a shipped template extends that template: `extraPlugins` appends bundles and `userPatches` overrides only the rows it names.
+A profile that sets `plugins` is fully user-defined (no template applies), so an existing full composition keeps working unchanged.
+Setting `template = "web"` on a custom-named profile extends the `web` template under that name.
 
 Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical profile directory via its stamp.
 Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved.
@@ -234,6 +249,7 @@ The DSH updater syncs both locks and then runs the public checks, the dedicated 
 - **validator/profile shape**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
 - **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and pin-checks the on-demand bundles against the tag (name set, version, non-placeholder hashes).
 - **Bundle and row composition**: boots a profile composed with two optional bundles, boots a profile that mounts an installed plugin package by a user patch row, and builds both on-demand subagent bundles (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
+- **Profile templates**: the module's template names match the pinned `PROFILE_TEMPLATES`; a template profile boots with no user bundle list; an extended template keeps its bundles, appends the extra one, and applies the user patch layer.
 - **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
 - **Out-of-tree npm plugin packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
 - **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and out-of-tree npm plugin packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.

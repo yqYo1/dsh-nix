@@ -106,6 +106,10 @@
         "@deepseek-ai/dsh-experimental-plugin-market-bundle"
         "@deepseek-ai/dsh-experimental-tool-worktree"
       ];
+      # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
+      # installs one profile per name by default; the bundles come from the
+      # dsh installation at build time, never from user configuration.
+      profileTemplates = [ "acp" "headless" "sdk" "sdk-minimal" "web" ];
       tui = import ./examples/profiles/tui.nix {
         inherit plugins profilesLib inBoxNames;
       };
@@ -130,7 +134,7 @@
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
-        inherit profilesLib inBoxNames;
+        inherit profilesLib inBoxNames profileTemplates;
         dshSrc = dsh;
         inherit fetchPnpmDepsFor officialBundlesFor;
       };
@@ -380,6 +384,136 @@
                   exit 1
                 fi
                 echo "resolved $(wc -l < "$TMPDIR/want.txt") official plugin packages from the installation"
+                touch "$out"
+              '';
+
+          # The module installs the shipped profile templates by default; this
+          # guard keeps its name list and every template's bundle list aligned
+          # with the pinned dsh installation.
+          profile-templates =
+            pkgs.runCommand "dsh-profile-templates-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                install = self.packages.${system}.dsh;
+                names = builtins.toJSON profileTemplates;
+                shipped = builtins.toJSON inBoxNames;
+              }
+              ''
+                templates=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
+                  ${./scripts/read-profile-template.mjs} "$install") || exit 1
+                printf '%s\n' "$names" | jq -r '.[]' | sort > "$TMPDIR/want.txt"
+                printf '%s' "$templates" | jq -r 'keys[]' | sort > "$TMPDIR/have.txt"
+                if ! diff -u "$TMPDIR/want.txt" "$TMPDIR/have.txt"; then
+                  echo "profile-templates: module template list differs from PROFILE_TEMPLATES" >&2
+                  exit 1
+                fi
+                printf '%s' "$templates" | jq -r 'to_entries[] | .value.bundles[]' | sort -u > "$TMPDIR/bundles.txt"
+                printf '%s\n' "$shipped" | jq -r '.[]' | sort > "$TMPDIR/shipped.txt"
+                missing=$(comm -23 "$TMPDIR/bundles.txt" "$TMPDIR/shipped.txt")
+                if [ -n "$missing" ]; then
+                  echo "profile-templates: template bundles outside the in-box set:" >&2
+                  printf '%s\n' "$missing" >&2
+                  exit 1
+                fi
+                echo "templates: $(wc -l < "$TMPDIR/have.txt"); bundles: $(wc -l < "$TMPDIR/bundles.txt")"
+                touch "$out"
+              '';
+
+          # A template profile takes its bundles from PROFILE_TEMPLATES and
+          # boots without the user listing any bundle.
+          profile-template =
+            let
+              profile = profilesLib.mkProfile {
+                name = "web";
+                template = "web";
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile {
+                inherit pkgs profile;
+                install = self.packages.${system}.dsh;
+              };
+            in
+            pkgs.runCommand "dsh-profile-template-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                jq -e --argjson want "$expected" '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
+                  || { echo "profile-template: bundles differ from PROFILE_TEMPLATES.web" >&2; exit 1; }
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/web"
+                chmod -R u+w "$home/profiles/web"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} web "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Extending a template keeps its bundles and settings, appends the
+          # declared extra bundle, and applies the user patch layer on top.
+          profile-template-extension =
+            let
+              profile = profilesLib.mkProfile {
+                name = "web-extended";
+                template = "web";
+                extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+                userPatches = [
+                  {
+                    insert = [
+                      { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
+                    ];
+                  }
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile {
+                inherit pkgs profile;
+                install = self.packages.${system}.dsh;
+              };
+            in
+            pkgs.runCommand "dsh-profile-template-extension-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                jq -e --argjson want "$(printf '%s' "$expected" | jq -c '. + ["@deepseek-ai/dsh-experimental-session-search"]')" \
+                  '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
+                  || { echo "profile-template-extension: template bundles were not kept in order" >&2; exit 1; }
+                jq -e '.[0].insert[0].name == "@deepseek-ai/dsh-tool-str-replace-editor"' \
+                  ${artifact}/cordis.patch.yml >/dev/null \
+                  || { echo "profile-template-extension: user patch layer missing" >&2; exit 1; }
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/web-extended"
+                chmod -R u+w "$home/profiles/web-extended"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} web-extended "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
 

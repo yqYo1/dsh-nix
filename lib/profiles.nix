@@ -7,7 +7,9 @@ let
   mkProfile =
     {
       name,
-      plugins,
+      plugins ? [ ],
+      extraPlugins ? [ ],
+      template ? null,
       inBoxNames ? [ ],
       officialBundles ? { },
       userPatchesFile ? null,
@@ -16,7 +18,12 @@ let
       specsLock ? null,
     }:
     let
-      classified = map (plugin: classifyPlugin { inherit inBoxNames officialBundles plugin; }) plugins;
+      # A template profile starts from a shipped profile template
+      # (PROFILE_TEMPLATES, read from the dsh installation at build time) and
+      # adds `extraPlugins`; a custom profile declares every entry in
+      # `plugins` and uses no template.
+      selected = if template == null then plugins else extraPlugins;
+      classified = map (plugin: classifyPlugin { inherit inBoxNames officialBundles plugin; }) selected;
       nixEntries = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
       packageNames = map (plugin: plugin.packageName) nixEntries;
@@ -44,8 +51,10 @@ let
           specsLock;
     in
     assert uniquePackageNames;
+    assert template == null || plugins == [ ];
+    assert template != null || extraPlugins == [ ];
     {
-      inherit name userPatchesFile userPatches specsHash;
+      inherit name template userPatchesFile userPatches specsHash;
       specsLock = checkedSpecsLock;
       plugins = classified;
       inBox = map (entry: entry.name)
@@ -55,8 +64,10 @@ let
     };
 
   buildProfile =
-    { pkgs, profile }:
+    { pkgs, profile, install ? null }:
     let
+      template = profile.template or null;
+      installArg = if template == null || install == null then "" else toString install;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;
       specEntries = builtins.filter (entry: entry.kind == "spec") classified;
@@ -106,13 +117,26 @@ let
       specRootArg = if specsRoot == null then "" else toString specsRoot;
     in
     pkgs.runCommand "dsh-profile-${profile.name}" {
-      buildInputs = [ pkgs.jq ];
+      buildInputs = [ pkgs.jq ] ++ (if template == null then [ ] else [ pkgs.nodejs ]);
     } ''
       mkdir -p "$out/node_modules"
       metadata=${lib.escapeShellArg (toString metadata)}
       specRoot=${lib.escapeShellArg specRootArg}
 
       bundles='[]'
+      template=${lib.escapeShellArg (if template == null then "" else template)}
+      if [ -n "$template" ]; then
+        install=${lib.escapeShellArg installArg}
+        if [ -z "$install" ] || [ ! -f "$install/lib/dsh-builtin-compat.cjs" ]; then
+          echo "dsh profile: template $template needs the dsh installation" >&2
+          exit 1
+        fi
+        templateBundles=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
+          ${../scripts/read-profile-template.mjs} "$install" "$template") || exit 1
+        printf '%s' "$templateBundles" | jq -e 'type == "array" and length > 0' >/dev/null \
+          || { echo "dsh profile: template $template returned no bundles" >&2; exit 1; }
+        bundles=$(printf '%s' "$templateBundles" | jq -c '.')
+      fi
       specIndex=0
       if [ -n "$specRoot" ]; then
         directCount=$(jq 'length' "$specRoot/direct-specs.json")
@@ -215,6 +239,14 @@ let
             ;;
         esac
         if [ -n "$bundle" ]; then
+          if printf '%s' "$bundles" | jq -e --arg b "$bundle" 'index($b)' >/dev/null 2>&1; then
+            if [ -n "$template" ]; then
+              echo "dsh profile: bundle $bundle is already in template $template" >&2
+            else
+              echo "dsh profile: duplicate bundle $bundle" >&2
+            fi
+            exit 1
+          fi
           bundles=$(printf '%s' "$bundles" | jq -c --arg bundle "$bundle" '. + [$bundle]')
         fi
       done < <(jq -c '.classes[]' "$metadata")
