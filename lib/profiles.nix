@@ -9,7 +9,7 @@ let
       name,
       plugins ? [ ],
       extraPlugins ? [ ],
-      template ? null,
+      extends ? null,
       inBoxNames ? [ ],
       officialBundles ? { },
       userPatchesFile ? null,
@@ -22,7 +22,7 @@ let
       # (PROFILE_TEMPLATES, read from the dsh installation at build time) and
       # adds `extraPlugins`; a custom profile declares every entry in
       # `plugins` and uses no template.
-      selected = if template == null then plugins else extraPlugins;
+      selected = if extends == null then plugins else extraPlugins;
       classified = map (plugin: classifyPlugin { inherit inBoxNames officialBundles plugin; }) selected;
       nixEntries = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
@@ -51,10 +51,10 @@ let
           specsLock;
     in
     assert uniquePackageNames;
-    assert template == null || plugins == [ ];
-    assert template != null || extraPlugins == [ ];
+    assert extends == null || plugins == [ ];
+    assert extends != null || extraPlugins == [ ];
     {
-      inherit name template userPatchesFile userPatches specsHash;
+      inherit name extends userPatchesFile userPatches specsHash;
       specsLock = checkedSpecsLock;
       plugins = classified;
       inBox = map (entry: entry.name)
@@ -66,7 +66,7 @@ let
   buildProfile =
     { pkgs, profile, install ? null }:
     let
-      template = profile.template or null;
+      template = profile.extends or null;
       installArg = if template == null || install == null then "" else toString install;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;

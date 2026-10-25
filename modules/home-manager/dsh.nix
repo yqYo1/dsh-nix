@@ -20,12 +20,13 @@
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
 #
-# A profile with `template` set (or whose name is a shipped template and no
-# `plugins`) extends that template: the bundles come from the dsh
-# installation (PROFILE_TEMPLATES) at build time, `extraPlugins` appends
-# entries, and `userPatches` overrides only the rows it names.  A profile with
-# `plugins` set is fully custom and no template applies.  `enable = false`
-# removes a profile; the shipped templates are enabled by default.
+# A profile with `extends` set starts from that shipped template: the bundles
+# come from the dsh installation (PROFILE_TEMPLATES) at build time,
+# `extraPlugins` appends entries, and `userPatches` overrides only the rows it
+# names.  `extends` works even while the template profile is disabled.  A
+# profile with `plugins` set is fully custom and uses no template.  The
+# `templates` option installs the template profiles themselves; enabling one
+# excludes a user profile of the same name.
 #
 # Official cordis plugin packages that ship without a bundle of their own
 # (for example `@deepseek-ai/dsh-tool-str-replace-editor`) are mounted with
@@ -47,29 +48,57 @@
 let
   cfg = config.programs.dsh;
 
-  # A profile named after a shipped template extends that template unless it
-  # sets `plugins` (full custom).  `template` selects one explicitly, which is
-  # also how a custom-named profile extends a template.
-  effectiveTemplate = name: p:
-    if p.template != null then p.template
-    else if p.plugins == null && builtins.elem name profileTemplates then name
-    else null;
-
-  templateReason = name: p:
-    let template = effectiveTemplate name p; in
-    if template != null && p.plugins != null then
-      "sets both plugins and template; use extraPlugins to extend a template"
-    else if template != null && !(builtins.elem template profileTemplates) then
-      "names unknown shipped profile template ${builtins.toJSON template}"
-    else if template == null && p.extraPlugins != [ ] then
-      "sets extraPlugins without a template; use plugins for a custom profile"
-    else
-      null;
-
-  checkedProfiles = lib.mapAttrs (name: p:
-    let reason = templateReason name p; in
-    if reason == null then p
-    else throw "programs.dsh: profile ${builtins.toJSON name} ${reason}") cfg.profiles;
+  # Built-in template profiles and user-defined profiles are separate.
+  # Enabling a template installs a profile of that name; a user profile with
+  # the same name is then a clash and waits for the template's disable.
+  # `extends` builds a user profile on a template regardless of that template
+  # profile's own enable flag.
+  templateModule = lib.types.submodule {
+    options = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether the shipped template profile is materialised under
+          ~/.dsh/profiles/<name>. Disabling it removes the profile and allows a
+          user-defined profile with the same name.
+        '';
+      };
+      extraPlugins = lib.mkOption {
+        type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
+        default = [ ];
+        description = ''
+          Entries appended to the template profile after its template bundles.
+          Only the listed entries are added; everything else keeps the
+          template's settings.
+        '';
+      };
+      userPatchesFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Profile-level cordis.patch.yml (the DSH user patch layer).";
+      };
+      userPatches = lib.mkOption {
+        type = lib.types.listOf lib.types.attrs;
+        default = [ ];
+        description = ''
+          Inline profile patch list (JSON-serialisable only; use
+          userPatchesFile for !!js). Overrides only the rows it names, on top
+          of the template's bundles.
+        '';
+      };
+      specsHash = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Fixed-output hash verifying a spec-plugin artifact added through extraPlugins.";
+      };
+      specsLock = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Lockfile pinning spec-plugin resolution for extraPlugins.";
+      };
+    };
+  };
 
   profileModule = lib.types.submodule {
     options = {
@@ -77,36 +106,37 @@ let
         type = lib.types.bool;
         default = true;
         description = ''
-          Whether this profile is materialised under ~/.dsh/profiles. A disabled
-          profile is removed on activation, as if it were never declared.
+          Whether this user-defined profile is materialised under
+          ~/.dsh/profiles. A disabled profile is removed on activation.
         '';
       };
-      template = lib.mkOption {
+      extends = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
         description = ''
-          Shipped profile template to extend (one of the dsh PROFILE_TEMPLATES
-          names). Defaults to the profile name when it names a shipped template
-          and `plugins` is unset. Set it explicitly to extend a template under a
-          custom profile name.
+          Shipped profile template to extend (one of the dsh
+          PROFILE_TEMPLATES names). The template's bundles and settings are
+          kept, `extraPlugins` appends entries, and `userPatches` overrides
+          only the rows they name. Works even while that template profile is
+          disabled. Mutually exclusive with `plugins`.
         '';
       };
       extraPlugins = lib.mkOption {
         type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
         default = [ ];
         description = ''
-          Entries appended after the template's bundles, for a profile that
-          extends a shipped template. Use `plugins` instead for a fully custom
-          profile; the two are mutually exclusive.
+          Entries appended after the extended template's bundles. Only valid
+          together with `extends`.
         '';
       };
       plugins = lib.mkOption {
         type = lib.types.nullOr (lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]));
         default = null;
         description = ''
-          Full custom plugin list. When set, the profile is entirely
-          user-defined and no template applies. To extend a shipped template,
-          set `template` and use `extraPlugins` instead.
+          Full custom plugin list: the profile is entirely user-defined, uses
+          no template, and may therefore share a name with an enabled template
+          only after that template profile is disabled. Mutually exclusive
+          with `extends`.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -142,15 +172,54 @@ let
     };
   };
 
-  declarations = lib.mapAttrs (name: p:
+  templateReason = name:
+    if builtins.elem name profileTemplates then null
+    else "is not a shipped profile template (expected one of ${lib.concatStringsSep ", " profileTemplates})";
+
+  profileReason = name: p:
+    if (cfg.templates ? ${name}) && cfg.templates.${name}.enable && p.enable then
+      "is also an enabled shipped template profile; disable templates.${name} first or rename the profile"
+    else if p.extends != null && p.plugins != null then
+      "sets both plugins and extends; use extraPlugins to extend a template"
+    else if p.extends != null && !(builtins.elem p.extends profileTemplates) then
+      "extends unknown shipped profile template ${builtins.toJSON p.extends}"
+    else if p.extends == null && p.extraPlugins != [ ] then
+      "sets extraPlugins without extends; use plugins for a custom profile"
+    else if p.extends == null && p.plugins == null then
+      "must set plugins (custom profile) or extends (template profile)"
+    else
+      null;
+
+  checkedTemplates = lib.mapAttrs (name: t:
+    let reason = templateReason name; in
+    if reason == null then t
+    else throw "programs.dsh: template profile ${builtins.toJSON name} ${reason}") cfg.templates;
+
+  checkedProfiles = lib.mapAttrs (name: p:
+    let reason = profileReason name p; in
+    if reason == null then p
+    else throw "programs.dsh: profile ${builtins.toJSON name} ${reason}") cfg.profiles;
+
+  templateDeclarations = lib.mapAttrs (name: t:
     profilesLib.mkProfile {
       inherit name;
-      inherit (p) userPatchesFile userPatches specsHash specsLock extraPlugins;
-      template = effectiveTemplate name p;
+      extends = name;
+      inherit (t) extraPlugins userPatchesFile userPatches specsHash specsLock;
+      inherit inBoxNames;
+      officialBundles = officialBundlesFor pkgs.stdenv.hostPlatform.system;
+    }) (lib.filterAttrs (_: t: t.enable) checkedTemplates);
+
+  profileDeclarations = lib.mapAttrs (name: p:
+    profilesLib.mkProfile {
+      inherit name;
+      extends = p.extends;
       plugins = if p.plugins == null then [ ] else p.plugins;
+      inherit (p) extraPlugins userPatchesFile userPatches specsHash specsLock;
       inherit inBoxNames;
       officialBundles = officialBundlesFor pkgs.stdenv.hostPlatform.system;
     }) (lib.filterAttrs (_: p: p.enable) checkedProfiles);
+
+  declarations = templateDeclarations // profileDeclarations;
 
   artifacts = lib.mapAttrs (name: declaration:
     profilesLib.buildProfile { inherit pkgs; profile = declaration; install = cfg.package; }) declarations;
@@ -296,13 +365,19 @@ in
       description = "The dsh CLI package to install.";
     };
 
-    profiles = lib.mkOption {
-      type = lib.types.attrsOf profileModule;
+    templates = lib.mkOption {
+      type = lib.types.attrsOf templateModule;
       # The shipped profile templates are installed by default, each without
       # listing its bundles: the template definition comes from the dsh
-      # installation.  Disable one with profiles.<name>.enable = false.
+      # installation.  Disable one with templates.<name>.enable = false.
       default = lib.genAttrs profileTemplates (_: { });
-      description = "DSH profiles materialised under ~/.dsh/profiles/<name>.";
+      description = "Shipped profile templates materialised under ~/.dsh/profiles/<name>.";
+    };
+
+    profiles = lib.mkOption {
+      type = lib.types.attrsOf profileModule;
+      default = { };
+      description = "User-defined profiles, either fully custom or extending a shipped template.";
     };
 
     homePatchesFile = lib.mkOption {

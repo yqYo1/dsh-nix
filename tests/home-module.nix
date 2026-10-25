@@ -59,36 +59,47 @@ let
   activationValue = config.home.activation.dshProfiles or "";
   activation = if builtins.isString activationValue then activationValue else activationValue.data;
 
-  # Template mode: the shipped templates are installed by default without
-  # listing their bundles, a profile can extend one with extraPlugins, and
-  # enable = false removes one.  A template name with `plugins` is a full
-  # custom profile instead.
-  templateModule = import ../modules/home-manager/dsh.nix {
+  # Template profiles are separate from user profiles: templates are enabled
+  # by default and can be extended in place; a user profile may reuse a
+  # template's name only after disabling it; `extends` works while disabled.
+  templateFactory = import ../modules/home-manager/dsh.nix {
     inherit pluginsLib profilesLib;
     inBoxNames = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" "@deepseek-ai/dsh-experimental-session-search" ];
     profileTemplates = [ "headless" "web" ];
     dshSrc = null;
   };
-  templateEvaluated = lib.evalModules {
+  evalWith = extra: (lib.evalModules {
     modules = [
       stub
-      templateModule
+      templateFactory
       {
-        programs.dsh = {
-          enable = true;
-          package = externalPackage;
-          profiles.web.extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
-          profiles.headless.enable = false;
-        };
+        programs.dsh = { enable = true; package = externalPackage; } // extra;
       }
     ];
     specialArgs = { inherit pkgs; };
+  }).config;
+  activationOf = config:
+    let value = config.home.activation.dshProfiles or ""; in
+    if builtins.isString value then value else value.data;
+
+  templateConfig = evalWith {
+    templates.web.extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+    templates.headless.enable = false;
   };
-  templateConfig = templateEvaluated.config;
-  templateActivationValue = templateConfig.home.activation.dshProfiles or "";
-  templateActivation =
-    if builtins.isString templateActivationValue then templateActivationValue else templateActivationValue.data;
-  templateProfiles = lib.attrNames templateConfig.programs.dsh.profiles;
+  customConfig = evalWith {
+    templates.web.enable = false;
+    profiles.web = { plugins = [ "@deepseek-ai/dsh-base" ]; };
+  };
+  extendsConfig = evalWith {
+    templates.web.enable = false;
+    profiles.research = {
+      extends = "web";
+      extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+    };
+  };
+  clash = builtins.tryEval (builtins.deepSeq
+    (evalWith { profiles.web = { plugins = [ "@deepseek-ai/dsh-base" ]; }; }).home.activation.dshProfiles
+    true);
 in
 {
   checks = [
@@ -110,12 +121,18 @@ in
     (builtins.head config.home.packages == externalPackage)
     ((builtins.head config.home.packages).outPath == externalPackage.outPath)
     # Shipped templates are declared by default and individually removable.
-    (templateProfiles == [ "headless" "web" ])
-    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" templateActivation)
-    (lib.hasInfix "\"$HOME/.dsh/profiles\"/headless" templateActivation == false)
-    # Extending a template keeps it materialised (the extra bundle is part of
-    # its declaration, not a separate profile).
-    (lib.hasInfix "dsh-profile-web" templateActivation)
+    (lib.attrNames templateConfig.programs.dsh.templates == [ "headless" "web" ])
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf templateConfig))
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/headless" (activationOf templateConfig) == false)
+    # Extending a template in place keeps the web profile.
+    (lib.hasInfix "dsh-profile-web" (activationOf templateConfig))
+    # A user profile may reuse a disabled template's name ...
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf customConfig))
+    # ... or extend a disabled template under another name.
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/research" (activationOf extendsConfig))
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf extendsConfig) == false)
+    # Enabling a template and defining a profile of the same name clash.
+    (clash.success == false)
   ];
   all = lib.all (x: x) [
     (lib.hasAttr ".dsh/cordis.patch.yml" config.home.file == false)
@@ -129,9 +146,13 @@ in
     (builtins.length config.home.packages == 1)
     (builtins.head config.home.packages == externalPackage)
     ((builtins.head config.home.packages).outPath == externalPackage.outPath)
-    (templateProfiles == [ "headless" "web" ])
-    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" templateActivation)
-    (lib.hasInfix "\"$HOME/.dsh/profiles\"/headless" templateActivation == false)
-    (lib.hasInfix "dsh-profile-web" templateActivation)
+    (lib.attrNames templateConfig.programs.dsh.templates == [ "headless" "web" ])
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf templateConfig))
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/headless" (activationOf templateConfig) == false)
+    (lib.hasInfix "dsh-profile-web" (activationOf templateConfig))
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf customConfig))
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/research" (activationOf extendsConfig))
+    (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf extendsConfig) == false)
+    (clash.success == false)
   ];
 }

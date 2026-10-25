@@ -110,19 +110,25 @@ imports = [ inputs.dsh-nix.homeManagerModules.dsh ];
 
 programs.dsh = {
   enable = true;
-  # The five shipped profile templates are installed by default, each without
-  # listing its bundles; disable one individually:
-  profiles.headless.enable = false;
-  # Extend a template: its bundles and settings stay, only the listed entries
-  # and patch rows are added/overridden.
-  profiles.web.extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
-  profiles.web.userPatches = [
+  # The five shipped templates are installed by default as profiles of the
+  # same name, each taking its bundles from the dsh installation; disable one
+  # individually.
+  templates.headless.enable = false;
+  # Add or override only what you name on the web template profile.
+  templates.web.extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+  templates.web.userPatches = [
     {
       insert = [
         { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
       ];
     }
   ];
+  # A user-defined profile that extends a shipped template; this works even
+  # while that template profile is disabled.
+  profiles.research = {
+    extends = "web";
+    extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+  };
   # A fully custom profile: no template; `plugins` is the whole composition.
   profiles.custom = {
     plugins = [
@@ -139,11 +145,11 @@ programs.dsh = {
 ```
 
 `web`, `headless`, `sdk`, `sdk-minimal`, and `acp` are the shipped profile templates (upstream `PROFILE_TEMPLATES`).
-They are materialised by default and take their bundles from the dsh installation, so a template profile lists no bundles in user configuration and keeps the template's own settings.
-`enable = false` removes one individually.
-A profile that sets `template` or whose name is a shipped template extends that template: `extraPlugins` appends bundles and `userPatches` overrides only the rows it names.
-A profile that sets `plugins` is fully user-defined (no template applies), so an existing full composition keeps working unchanged.
-Setting `template = "web"` on a custom-named profile extends the `web` template under that name.
+`templates.<name>.enable` installs the template profile with exactly the template's settings; `templates.<name>.extraPlugins` and `templates.<name>.userPatches` add or override only the named parts.
+`profiles.<name>` declares a user-defined profile: `plugins` is a full custom composition, and `extends = "<template>"` reuses a template's bundles and settings with `extraPlugins`/`userPatches` applied on top.
+
+The template profile and a user profile of the same name are exclusive: `profiles.web` requires `templates.web.enable = false`, otherwise evaluation fails.
+An `extends` reference does not require the template profile to be enabled, so `profiles.research.extends = "web"` works with `templates.web.enable = false`.
 
 Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical profile directory via its stamp.
 Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved.

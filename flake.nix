@@ -425,7 +425,7 @@
             let
               profile = profilesLib.mkProfile {
                 name = "web";
-                template = "web";
+                extends = "web";
                 inherit inBoxNames;
               };
               artifact = profilesLib.buildProfile {
@@ -468,7 +468,7 @@
             let
               profile = profilesLib.mkProfile {
                 name = "web-extended";
-                template = "web";
+                extends = "web";
                 extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
                 userPatches = [
                   {
