@@ -9,14 +9,20 @@
 # ~/.dsh/profiles/<name> (writable; dsh rewrites the profile root cordis.yml
 # on every boot), comparing a stamp against the artifact store path.
 #
-# `plugins` accepts four forms in one ordered list:
-#   - official bundle names ("@deepseek-ai/dsh-base", the shipped app and
-#     opt-in bundles)                   name only, resolved from the installation
+# `plugins` accepts forms in one ordered list:
+#   - official bundle names ("@deepseek-ai/dsh-base": the shipped app/opt-in
+#     bundles and the on-demand subagent bundles this repository builds)
+#                                      name only, nothing to package
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
 #   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
+#
+# Official non-bundle kernel plugins are mounted with `userPatches` rows
+# named after the installed package (for example
+# `{ insert = [ { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; } ]; }`);
+# their names resolve from the running installation.
 #
 # `package` defaults to `pkgs.dsh` (overlay) or the bundled callPackage build.
 # The bundled build threads `fetchPnpmDepsFor` (system -> fetchPnpmDeps,
@@ -54,7 +60,12 @@ let
       userPatches = lib.mkOption {
         type = lib.types.listOf lib.types.attrs;
         default = [ ];
-        description = "Inline profile patch list (JSON-serialisable only; use userPatchesFile for !!js).";
+        description = ''
+          Inline profile patch list (JSON-serialisable only; use userPatchesFile
+          for !!js). This is also how official kernel plugins that ship without
+          a bundle are mounted by name, for example
+          { insert = [ { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; } ]; }.
+        '';
       };
       specsHash = lib.mkOption {
         type = lib.types.str;

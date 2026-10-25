@@ -5,13 +5,14 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile packager**: resolves plugin dependencies and composes profiles at build time.
+- **official plugins**: every official bundle is usable by profile name — shipped bundles resolve from the installation, the two on-demand subagent bundles are built by this repository — and official non-bundle plugins mount through profile patch rows. Users package nothing.
 - **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
 
 ## Plugin composition
 
 Profile `plugins` accept the following forms, mixed in declaration order:
 
-- **official bundle**: a name such as `"@deepseek-ai/dsh-base"`, resolved from the DSH installation — nothing to package. The shipped set is accepted by name: the six app bundles (`dsh-base`, `dsh-web-app`, `dsh-headless`, `dsh-sdk-app`, `dsh-sdk-minimal`, `dsh-acp-app`) and the twelve opt-in bundles (`dsh-experimental-*`: `session-search`, `ralph-bundle`, `terminal-bundle`, `badge-skill-bundle`, `session-titles-bundle`, `agent-team-profile`, `voice-input-bundle`, `cot-translation-bundle`, `auto-review`, `inspector-profile`, `plugin-market-bundle`, `tool-worktree`). The two **on-demand** Official bundles (`@deepseek-ai/dsh-subagent-codex`, `@deepseek-ai/dsh-subagent-claude-code`) are accepted the same way: this repository builds them from their pinned npm releases (`official/` lockfiles + tarball and pnpm-store hashes), so users supply no hash.
+- **official bundle**: a name such as `"@deepseek-ai/dsh-base"` — nothing to package (see [Official bundles](#official-bundles)).
 - **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
 - **Nix package**: a user-declared derivation such as `pkgs.buildNpmPackage { ... }`; linked into the profile with its built dependency closure intact.
 - **Nix path**: a prebuilt plugin directory with `package.json` at its root, such as `./my-plugin`; required runtime dependencies must be contained in the artifact.
@@ -21,6 +22,49 @@ Layers are registered from each package's `dsh.bundle.patch` declaration.
 Spec transitive/peer dependencies stay in the runtime graph and are never promoted to direct profile plugins or layers.
 Scoped packages are linked per package inside their scope directory, so they coexist with Nix plugins in the same scope.
 If a spec and a Nix plugin share a package name, the build fails.
+
+### Official bundles
+
+Every official bundle is accepted by name; users never package or hash them.
+
+- **app bundles** (upstream `PROFILE_TEMPLATES`, resolved from the installation):
+  - `@deepseek-ai/dsh-base`
+  - `@deepseek-ai/dsh-web-app`
+  - `@deepseek-ai/dsh-headless`
+  - `@deepseek-ai/dsh-sdk-app`
+  - `@deepseek-ai/dsh-sdk-minimal`
+  - `@deepseek-ai/dsh-acp-app`
+- **opt-in bundles** (upstream `OPTIONAL_BUNDLES`, shipped switched off):
+  - `@deepseek-ai/dsh-experimental-session-search`
+  - `@deepseek-ai/dsh-experimental-ralph-bundle`
+  - `@deepseek-ai/dsh-experimental-terminal-bundle`
+  - `@deepseek-ai/dsh-experimental-badge-skill-bundle`
+  - `@deepseek-ai/dsh-experimental-session-titles-bundle`
+  - `@deepseek-ai/dsh-experimental-agent-team-profile`
+  - `@deepseek-ai/dsh-experimental-voice-input-bundle`
+  - `@deepseek-ai/dsh-experimental-cot-translation-bundle`
+  - `@deepseek-ai/dsh-experimental-auto-review`
+  - `@deepseek-ai/dsh-experimental-inspector-profile`
+  - `@deepseek-ai/dsh-experimental-plugin-market-bundle`
+  - `@deepseek-ai/dsh-experimental-tool-worktree`
+- **on-demand Official bundles** (not shipped; this repository builds them from pinned npm releases, provider binaries included):
+  - `@deepseek-ai/dsh-subagent-codex`
+  - `@deepseek-ai/dsh-subagent-claude-code`
+
+```nix
+programs.dsh.profiles.research = {
+  plugins = [
+    "@deepseek-ai/dsh-base"
+    "@deepseek-ai/dsh-web-app"
+    "@deepseek-ai/dsh-experimental-session-search" # shipped opt-in bundle
+    "@deepseek-ai/dsh-subagent-codex"              # on-demand, built by dsh-nix
+  ];
+};
+```
+
+The accepted name list is drift-checked against the pinned DSH source, and the on-demand pins are checked against the tag's version and upstream catalog list, so a dsh bump that ships new bundles or leaves a stale pin fails `nix flake check`.
+
+### Official kernel plugins
 
 Official *kernel plugins* that ship without a bundle (e.g. `@deepseek-ai/dsh-tool-str-replace-editor`) are mounted by patch rows in the profile's own layer; their package names resolve from the dsh installation, so nothing is packaged:
 
@@ -184,6 +228,8 @@ After updating the public flake's inputs/lock, also run `nix flake lock ./tests 
 The DSH updater syncs both locks and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
 - **validator/artifacts**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
+- **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and pin-checks the on-demand bundles against the tag (name set, version, non-placeholder hashes).
+- **Official plugin paths**: boots a profile composed with two opt-in bundles, boots a profile with an official non-bundle plugin mounted by a user patch row, and builds both on-demand subagent bundles (provider binaries included) into a profile that boots.
 - **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
 - **User-declared npm packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
 - **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and user-declared npm packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
