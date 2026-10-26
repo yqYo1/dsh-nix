@@ -13,7 +13,6 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - [Plugins](#plugins)
 - [Usage](#usage)
-- [Regression verification](#regression-verification)
 - [Notes](#notes)
 
 ## Plugins
@@ -70,7 +69,7 @@ programs.dsh.profiles.research = {
 };
 ```
 
-The accepted name list and the on-demand list are drift-checked against the pinned DSH source, so a dsh bump that ships new bundles or changes the on-demand set fails `nix flake check`.
+The accepted name list and the on-demand list come from the pinned DSH source; unsupported bundle names are rejected.
 
 ### Out-of-tree plugins (Nix packages and paths)
 
@@ -215,8 +214,8 @@ The home-level patch (`homePatchesFile`) is applied after each profile's own pat
 
 #### Activation
 
-Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical profile directory via its stamp.
-Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved.
+Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an unchanged profile.
+Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved. Running an agent requires credentials.
 
 ```sh
 dsh --profile headless "task"
@@ -233,54 +232,10 @@ Profile composition is managed by the Home Manager module; standalone profile ar
 The `default` package is `dsh`.
 Accepting the flake configuration enables the public binary cache `yqyo1.cachix.org`.
 The public key for signature verification is pinned in `flake.nix`; downloads need no token.
-Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
-
-## Regression verification
-
-```sh
-# Public flake: profile directories, rc.2 boot, Home Manager-independent checks
-nix flake check --accept-flake-config --no-update-lock-file --no-write-lock-file
-# Dedicated test flake: evaluation and sandbox activation on the pinned real Home Manager
-nix flake check ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file
-# profile install → activation → boot with the real daemon and driver 0
-nix develop ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh
-```
-
-The public flake does not depend on Home Manager.
-Only the regression checks that use HM are split into the `tests/` subflake, with the HM pin managed solely in `tests/flake.lock`.
-This mirrors the [catppuccin/nix dev-flake](https://github.com/catppuccin/nix/blob/main/dev/flake.nix) separation.
-Relative inputs (`path:../.`) require Nix >= 2.26.
-The user's Home Manager choice and how `homeManagerModules.dsh` is imported do not change.
-After updating the public flake's inputs/lock, also run `nix flake lock ./tests --update-input dsh-nix` to sync the test-side graph (a plain lock cannot see the moved `path:../.` input).
-`scripts/update-dsh.sh` retargets the `dsh` input, syncs both locks, and then runs the public checks, the dedicated tests checks, and the real host E2E.
-
-- **validator/profile shape**: verifies declaration order, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
-- **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and checks the on-demand list against upstream `ON_DEMAND_BUNDLES` (each must be a built bundle in the source).
-- **Bundle and row composition**: boots a profile composed with two optional bundles, boots a profile that mounts an installed plugin package by a user patch row, and links both on-demand subagent bundles from the installation (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
-- **Profile templates**: the module's template names match the pinned `PROFILE_TEMPLATES`; a template profile boots with no user bundle list; an extended template keeps its bundles, appends the extra one, and applies the user patch layer.
-- **Out-of-tree plugins**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
-- **Nix-packaged plugin**: builds a real registry plugin (`dsh-codex@0.3.2`) as a Nix derivation and boots a profile with it; the HM host E2E declares the same derivation in `programs.dsh.profiles.codex` through the HM flake, activates with driver 0, and boots `CHECK-OK`.
-- **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for out-of-tree plugins. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
-- **HM host**: isolates HOME/XDG/Nix state in scratch and installs the given packages with the real daemon and driver 0, verifying real imports of the materialised Nix plugins (`dsh-codex`, `user-npm`), their CLI use, and rc.2 boot. External guards confirm the real user's profiles, gcroots, and app data remain unchanged.
-
-`scripts/check-profile.mjs` uses the pinned rc.2 path `loadProfile` → `createRuntimeResolution` → `readProfilePatches` → `boot`.
-It fails without emitting `CHECK-OK` if DSH's own startup audit fails or a non-zero exit is requested during boot.
-After boot the tree is disposed; launcher readiness is not asserted.
-Running an actual agent requires credentials.
-
-## Repository layout
-
-- `pkgs/` — the `dsh` package build, its pnpm-deps FOD support and the Node builtin shim.
-- `lib/` — profile composition (`profiles.nix`, `plugins.nix`) and build-time helpers (`read-profile-template.mjs`).
-- `modules/home-manager/` — the `programs.dsh` Home Manager module.
-- `scripts/` — operator/CI commands: `update-dsh.sh`, `hm-e2e.sh`, `check-profile.mjs`.
-- `tests/` — the dedicated test flake, its fixtures (`tests/fixtures/`) and the real Home Manager harnesses.
-- `flake.nix` / `flake.lock` — the public flake and its pinned inputs; `tests/flake.lock` pins the test-side Home Manager graph.
 
 ## Notes
 
 - The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.
-- The `dsh-codex` test fixture (`tests/fixtures/codex-plugin.nix`) owns its lock and hash internally; users are never asked for plugin hashes. Activating consumers is a consumer-side management task; this repository's tests do not modify consumer dotfiles.
 
 ## License
 
