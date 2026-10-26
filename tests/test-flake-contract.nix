@@ -23,7 +23,7 @@ let
     "boot-checker-wiring"
     "home-module"
     "official-bundles"
-    "official-pins"
+    "official-on-demand"
     "official-plugin-resolution"
     "profile-boot-experimental"
     "profile-boot-headless"

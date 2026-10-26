@@ -64,7 +64,7 @@ let
   classifyPlugin =
     {
       inBoxNames ? [ ],
-      officialBundles ? { },
+      installBundles ? [ ],
       plugin,
     }:
     if builtins.isString plugin then
@@ -73,13 +73,10 @@ let
           kind = "in-box";
           name = plugin;
         }
-      else if officialBundles ? ${plugin} then
+      else if builtins.elem plugin installBundles then
         {
-          kind = "nix";
-          plugin = mkBundle {
-            path = officialBundles.${plugin};
-            packageName = plugin;
-          };
+          kind = "install-bundle";
+          name = plugin;
         }
       else
         {

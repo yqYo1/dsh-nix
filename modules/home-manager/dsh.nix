@@ -12,7 +12,7 @@
 # `plugins` accepts forms in one ordered list:
 #   - official bundle names ("@deepseek-ai/dsh-base": the bundles of the
 #     shipped profile templates, the shipped optional bundles, and the
-#     on-demand subagent bundles this repository builds)
+#     on-demand subagent bundles linked from the pinned dsh source)
 #                                      name only, nothing to package
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
@@ -41,7 +41,7 @@
 # pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
 # the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
 # main build.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc, profileTemplates ? [ ], fetchPnpmDepsFor ? (_: null), officialBundlesFor ? (_: { }) }:
+{ pluginsLib, profilesLib, inBoxNames, dshSrc, profileTemplates ? [ ], onDemandBundles ? [ ], fetchPnpmDepsFor ? (_: null) }:
 
 { config, lib, pkgs, ... }:
 
@@ -206,7 +206,7 @@ let
       extends = name;
       inherit (t) extraPlugins userPatchesFile userPatches specsHash specsLock;
       inherit inBoxNames;
-      officialBundles = officialBundlesFor pkgs.stdenv.hostPlatform.system;
+      installBundles = onDemandBundles;
     }) (lib.filterAttrs (_: t: t.enable) checkedTemplates);
 
   profileDeclarations = lib.mapAttrs (name: p:
@@ -216,7 +216,7 @@ let
       plugins = if p.plugins == null then [ ] else p.plugins;
       inherit (p) extraPlugins userPatchesFile userPatches specsHash specsLock;
       inherit inBoxNames;
-      officialBundles = officialBundlesFor pkgs.stdenv.hostPlatform.system;
+      installBundles = onDemandBundles;
     }) (lib.filterAttrs (_: p: p.enable) checkedProfiles);
 
   declarations = templateDeclarations // profileDeclarations;

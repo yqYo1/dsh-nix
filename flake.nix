@@ -62,21 +62,14 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
-      officialBundles = import ./lib/official-bundles.nix { inherit lib; };
-      # Pinned builds of the official ON-DEMAND bundles (published npm
-      # releases): profiles may name them exactly like shipped bundles.
-      officialBundlesFor = system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        lib.genAttrs (lib.attrNames officialBundles.pins) (name:
-          pkgs.callPackage ./pkgs/official-bundle.nix (
-            {
-              npmName = name;
-              fetchPnpmDeps = fetchPnpmDepsFor system;
-            }
-            // officialBundles.pins.${name}
-          ));
+      # The official on-demand bundles are not installation dependencies, but
+      # the pinned dsh source still contains and builds them.  Profile builds
+      # link the installed package directly, so no npm fetch, version pin,
+      # lockfile, or pnpm-store hash is maintained separately.
+      onDemandBundles = [
+        "@deepseek-ai/dsh-subagent-codex"
+        "@deepseek-ai/dsh-subagent-claude-code"
+      ];
       # The official bundles shipped by the dsh installation: every package
       # under `packages/bundle/` and `packages/experimental/` that declares
       # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
@@ -134,9 +127,9 @@
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
-        inherit profilesLib inBoxNames profileTemplates;
+        inherit profilesLib inBoxNames profileTemplates onDemandBundles;
         dshSrc = dsh;
-        inherit fetchPnpmDepsFor officialBundlesFor;
+        inherit fetchPnpmDepsFor;
       };
 
       # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
@@ -258,7 +251,8 @@
           # declares `dsh.bundle.patch`.  The on-demand subagent bundles are
           # not installation dependencies (catalog-only), so the rule
           # excludes them without a path allowlist and cannot miss a bundle
-          # placed anywhere else in the tree.
+          # placed anywhere else in the tree; they are covered by the
+          # official-on-demand check and linked at build time.
           official-bundles =
             pkgs.runCommand "dsh-official-bundles-check"
               {
@@ -289,46 +283,46 @@
                 touch "$out"
               '';
 
-          # Official on-demand pins must track the pinned dsh tag: the pinned
-          # names equal the upstream ON_DEMAND_BUNDLES list, every pin version
-          # equals the source version, and no pin ships discovery placeholders.
-          # A tag bump that forgets lib/official-bundles.nix fails loud here.
-          official-pins =
-            pkgs.runCommand "dsh-official-pins-check"
+          # The on-demand bundle names are the only per-bundle list this
+          # repository keeps; it must equal upstream ON_DEMAND_BUNDLES, and
+          # each name must be a built bundle in the pinned dsh source.  No npm
+          # fetch, version pin, lockfile, or store hash is maintained here.
+          official-on-demand =
+            pkgs.runCommand "dsh-official-on-demand-check"
               {
                 nativeBuildInputs = [ pkgs.jq ];
                 src = dsh;
-                pins = builtins.toJSON (builtins.mapAttrs (_: p: {
-                  inherit (p) version tarballHash depsHash;
-                }) officialBundles.pins);
+                install = self.packages.${system}.dsh;
+                names = builtins.toJSON onDemandBundles;
               }
               ''
-                version=$(jq -r .version "$src/apps/cli/package.json")
                 upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/boot/app-boot/src/official-bundle-packages.ts" \
                   | grep -oE "'@deepseek-ai/[^']+'" | tr -d "'" | sort)
-                pinned=$(printf '%s\n' "$pins" | jq -r 'keys[]' | sort)
-                if [ "$upstream" != "$pinned" ]; then
-                  echo "official-pins: pinned names differ from upstream ON_DEMAND_BUNDLES" >&2
-                  diff <(printf '%s\n' "$pinned") <(printf '%s\n' "$upstream") >&2 || true
+                want=$(printf '%s\n' "$names" | jq -r '.[]' | sort)
+                if [ "$upstream" != "$want" ]; then
+                  echo "official-on-demand: names differ from upstream ON_DEMAND_BUNDLES" >&2
+                  diff <(printf '%s\n' "$want") <(printf '%s\n' "$upstream") >&2 || true
                   exit 1
                 fi
-                printf '%s\n' "$pins" \
-                  | jq -r 'to_entries[] | [.key, .value.version, .value.tarballHash, .value.depsHash] | @tsv' \
-                  > "$TMPDIR/pins.tsv"
-                while IFS=$'\t' read -r name pin_version tarball_hash deps_hash; do
-                  if [ "$pin_version" != "$version" ]; then
-                    echo "official-pins: $name pinned at $pin_version but the dsh source is $version; refresh lib/official-bundles.nix" >&2
+                for name in $want; do
+                  matches=$(find "$install" -path '*/node_modules' -prune -o -name package.json -print \
+                    | while IFS= read -r manifest; do
+                        if [ "$(jq -r '.name // empty' "$manifest")" = "$name" ]; then
+                          printf '%s\n' "$manifest"
+                        fi
+                      done)
+                  count=$(printf '%s\n' "$matches" | grep -c . || true)
+                  if [ "$count" -ne 1 ]; then
+                    echo "official-on-demand: expected one built source package for $name, found $count" >&2
                     exit 1
                   fi
-                  case "$tarball_hash" in
-                    sha512-*) : ;;
-                    *) echo "official-pins: $name tarballHash is not a sha512 SRI" >&2; exit 1 ;;
-                  esac
-                  case "$deps_hash" in
-                    sha256-*) : ;;
-                    *) echo "official-pins: $name depsHash is not a sha256 SRI (still in discovery mode?)" >&2; exit 1 ;;
-                  esac
-                done < "$TMPDIR/pins.tsv"
+                  jq -e '((.dsh // {}).bundle // {}).patch != null' "$matches" >/dev/null \
+                    || { echo "official-on-demand: $name declares no dsh.bundle.patch" >&2; exit 1; }
+                  main=$(jq -r '.main // empty' "$matches")
+                  [ -n "$main" ] && [ -f "$(dirname "$matches")/$main" ] \
+                    || { echo "official-on-demand: $name is not built (missing $main)" >&2; exit 1; }
+                done
+                echo "on-demand bundles: $(printf '%s\n' "$want" | wc -l)"
                 touch "$out"
               '';
 
@@ -924,10 +918,9 @@
               '';
 
           # Official ON-DEMAND bundles by name: dsh-subagent-codex and
-          # dsh-subagent-claude-code are not in the installation, so dsh-nix
-          # builds them from their pinned npm releases (official/ pins).  The
-          # profile links them like Nix-package plugins and boots with no
-          # skipped bundle.
+          # dsh-subagent-claude-code are not installation dependencies, but the
+          # pinned dsh source builds them; dsh-nix links the installed package
+          # and boots with no skipped bundle.
           profile-official-on-demand =
             let
               profile = profilesLib.mkProfile {
@@ -935,13 +928,11 @@
                 plugins = [
                   "@deepseek-ai/dsh-base"
                   "@deepseek-ai/dsh-web-app"
-                  "@deepseek-ai/dsh-subagent-codex"
-                  "@deepseek-ai/dsh-subagent-claude-code"
-                ];
-                officialBundles = officialBundlesFor system;
+                ] ++ onDemandBundles;
                 inherit inBoxNames;
+                installBundles = onDemandBundles;
               };
-              artifact = profilesLib.buildProfile { inherit pkgs profile; };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; install = self.packages.${system}.dsh; };
             in
             pkgs.runCommand "dsh-profile-official-on-demand-check"
               {
@@ -956,6 +947,8 @@
                   "$home/profiles/official-on-demand/package.json" >/dev/null
                 test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/package.json"
                 test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/package.json"
+                test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/node_modules/@openai/codex"
+                test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/node_modules/@anthropic-ai/claude-agent-sdk"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \

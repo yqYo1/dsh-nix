@@ -11,7 +11,7 @@ let
       extraPlugins ? [ ],
       extends ? null,
       inBoxNames ? [ ],
-      officialBundles ? { },
+      installBundles ? [ ],
       userPatchesFile ? null,
       userPatches ? [ ],
       specsHash ? "",
@@ -23,7 +23,7 @@ let
       # adds `extraPlugins`; a custom profile declares every entry in
       # `plugins` and uses no template.
       selected = if extends == null then plugins else extraPlugins;
-      classified = map (plugin: classifyPlugin { inherit inBoxNames officialBundles plugin; }) selected;
+      classified = map (plugin: classifyPlugin { inherit inBoxNames installBundles plugin; }) selected;
       nixEntries = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
       packageNames = map (plugin: plugin.packageName) nixEntries;
@@ -59,6 +59,8 @@ let
       plugins = classified;
       inBox = map (entry: entry.name)
         (builtins.filter (entry: entry.kind == "in-box") classified);
+      installBundles = map (entry: entry.name)
+        (builtins.filter (entry: entry.kind == "install-bundle") classified);
       inherit nixEntries;
       inherit specs;
     };
@@ -67,7 +69,9 @@ let
     { pkgs, profile, install ? null }:
     let
       template = profile.extends or null;
-      installArg = if template == null || install == null then "" else toString install;
+      installBundleNames = profile.installBundles or [ ];
+      needsInstall = template != null || installBundleNames != [ ];
+      installArg = if !needsInstall || install == null then "" else toString install;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;
       specEntries = builtins.filter (entry: entry.kind == "spec") classified;
@@ -95,7 +99,8 @@ let
         inherit nixMetadata;
         specCount = builtins.length specEntries;
         classes = map (entry:
-          if entry.kind == "in-box" then { kind = entry.kind; name = entry.name; }
+          if entry.kind == "in-box" || entry.kind == "install-bundle" then
+            { kind = entry.kind; name = entry.name; }
           else if entry.kind == "spec" then { kind = entry.kind; }
           else {
             kind = entry.kind;
@@ -124,9 +129,9 @@ let
       specRoot=${lib.escapeShellArg specRootArg}
 
       bundles='[]'
+      install=${lib.escapeShellArg installArg}
       template=${lib.escapeShellArg (if template == null then "" else template)}
       if [ -n "$template" ]; then
-        install=${lib.escapeShellArg installArg}
         if [ -z "$install" ] || [ ! -f "$install/lib/dsh-builtin-compat.cjs" ]; then
           echo "dsh profile: template $template needs the dsh installation" >&2
           exit 1
@@ -204,6 +209,23 @@ let
           printf '%s' "$resolved"
         fi
       }
+      # Find the one installed package named $1 (source tree, no node_modules).
+      resolve_install_bundle() {
+        want=$1
+        count=0
+        chosen=""
+        while IFS= read -r manifest; do
+          [ -f "$manifest" ] || continue
+          [ "$(jq -r '.name // empty' "$manifest")" = "$want" ] || continue
+          count=$((count + 1))
+          chosen=$(dirname "$manifest")
+        done < <(find "$install" -path '*/node_modules' -prune -o -name package.json -print)
+        if [ "$count" -ne 1 ]; then
+          echo "dsh profile: expected exactly one installed package named $want, found $count" >&2
+          return 1
+        fi
+        printf '%s' "$chosen"
+      }
       # Explicit patchPath forces layer membership; otherwise the package's
       # own dsh.bundle.patch declaration decides (plain deps stay inactive).
       is_nix_layer() {
@@ -217,6 +239,9 @@ let
         kind=$(printf '%s' "$entry" | jq -r '.kind')
         case "$kind" in
           in-box)
+            bundle=$(printf '%s' "$entry" | jq -r '.name')
+            ;;
+          install-bundle)
             bundle=$(printf '%s' "$entry" | jq -r '.name')
             ;;
           spec)
@@ -324,6 +349,25 @@ let
           esac
         fi
       done < <(jq -c '.nixMetadata[]' "$metadata")
+      # Installed-source bundles (the on-demand official bundles): link the
+      # package directory from the dsh installation.  Its node_modules stays
+      # in place, so pnpm's relative workspace links remain valid.
+      while IFS= read -r entry; do
+        name=$(printf '%s' "$entry" | jq -r '.name')
+        if [ -z "$install" ]; then
+          echo "dsh profile: bundle $name requires the dsh installation" >&2
+          exit 1
+        fi
+        dir=$(resolve_install_bundle "$name") || exit 1
+        jq -e '((.dsh // {}).bundle // {}).patch != null' "$dir/package.json" >/dev/null \
+          || { echo "dsh profile: $name in the installation is not a bundle" >&2; exit 1; }
+        main=$(jq -r '.main // empty' "$dir/package.json")
+        [ -n "$main" ] && [ -f "$dir/$main" ] \
+          || { echo "dsh profile: $name is not built in the installation (missing $main)" >&2; exit 1; }
+        parent=$(dirname "$name")
+        if [ "$parent" != . ]; then mkdir -p "$out/node_modules/$parent"; fi
+        ln -s "$dir" "$out/node_modules/$name"
+      done < <(jq -c '.classes[] | select(.kind == "install-bundle")' "$metadata")
 
       if [ -n "$specRoot" ]; then
         # Project ONLY the ordered direct specs, one package at a time.

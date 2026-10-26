@@ -5,7 +5,7 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile builder**: resolves plugin dependencies and composes profiles at build time.
-- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the two on-demand subagent bundles are built by this repository. Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
+- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the two on-demand subagent bundles are linked from the pinned dsh source. Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
 - **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
 
 ## Plugin composition
@@ -49,7 +49,7 @@ The official plugin set is the official bundle set (upstream `PROFILE_TEMPLATES`
   - `@deepseek-ai/dsh-experimental-inspector-profile`
   - `@deepseek-ai/dsh-experimental-plugin-market-bundle`
   - `@deepseek-ai/dsh-experimental-tool-worktree`
-- **on-demand official bundles** (not shipped; this repository builds them from pinned npm releases, provider binaries included):
+- **on-demand official bundles** (not installation dependencies; the pinned dsh source builds them and dsh-nix links the installed package, provider binaries included):
   - `@deepseek-ai/dsh-subagent-codex`
   - `@deepseek-ai/dsh-subagent-claude-code`
 
@@ -59,12 +59,12 @@ programs.dsh.profiles.research = {
     "@deepseek-ai/dsh-base"
     "@deepseek-ai/dsh-web-app"
     "@deepseek-ai/dsh-experimental-session-search" # shipped optional bundle
-    "@deepseek-ai/dsh-subagent-codex"              # on-demand, built by dsh-nix
+    "@deepseek-ai/dsh-subagent-codex"              # on-demand, linked from the dsh source
   ];
 };
 ```
 
-The accepted name list is drift-checked against the pinned DSH source, and the on-demand pins are checked against the tag's version and upstream catalog list, so a dsh bump that ships new bundles or leaves a stale pin fails `nix flake check`.
+The accepted name list and the on-demand list are drift-checked against the pinned DSH source, so a dsh bump that ships new bundles or changes the on-demand set fails `nix flake check`.
 
 ### Plugin packages without a bundle
 
@@ -253,8 +253,8 @@ After updating the public flake's inputs/lock, also run `nix flake lock ./tests 
 The DSH updater syncs both locks and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
 - **validator/profile shape**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
-- **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and pin-checks the on-demand bundles against the tag (name set, version, non-placeholder hashes).
-- **Bundle and row composition**: boots a profile composed with two optional bundles, boots a profile that mounts an installed plugin package by a user patch row, and builds both on-demand subagent bundles (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
+- **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and checks the on-demand list against upstream `ON_DEMAND_BUNDLES` (each must be a built bundle in the source).
+- **Bundle and row composition**: boots a profile composed with two optional bundles, boots a profile that mounts an installed plugin package by a user patch row, and links both on-demand subagent bundles from the installation (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
 - **Profile templates**: the module's template names match the pinned `PROFILE_TEMPLATES`; a template profile boots with no user bundle list; an extended template keeps its bundles, appends the extra one, and applies the user patch layer.
 - **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
 - **Out-of-tree npm plugin packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
@@ -275,7 +275,7 @@ Running an actual agent requires credentials.
 
 - The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.
 - Upstream's standard profile templates are `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`; every shipped bundle, including the twelve optional `dsh-experimental-*` bundles, is usable by name with nothing to package. The accepted list is drift-checked against the pinned DSH source, so a bump that ships new bundles fails loud until the list is refreshed. The TUI is composed as a plugin.
-- The two on-demand official bundles (`@deepseek-ai/dsh-subagent-codex`, `@deepseek-ai/dsh-subagent-claude-code`) are built by this repository from their pinned npm releases (`official/`); users name them directly and supply no hash. Pin refreshes belong to the dsh-tag update flow.
+- The two on-demand official bundles (`@deepseek-ai/dsh-subagent-codex`, `@deepseek-ai/dsh-subagent-claude-code`) are not installation dependencies, but the pinned dsh source builds them; dsh-nix links the installed package, so users name them directly and supply no hash. A dsh tag update needs no separate pin refresh.
 - Updating `specsLock`/`specsHash` and activating consumers are consumer-side management tasks. This repository's tests do not modify consumer dotfiles.
 
 ## License
