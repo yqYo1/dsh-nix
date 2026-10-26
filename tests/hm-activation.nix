@@ -8,7 +8,7 @@
 # Optional args accept multi-generation scenarios (config refresh, plugin
 # removal, profile removal):
 #   profiles  attrset of profile declarations; each value accepts
-#             { plugins, userPatches ?, userPatchesFile ?, specsHash ?, specsLock ? }
+#             { plugins, userPatches ?, userPatchesFile ? }
 #   settings  seed-only settings.yaml content
 #   homePatchesFile  machine-level patch layer path or null
 { pkgs
@@ -37,10 +37,8 @@ let
     plugins = [ ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
     # Threaded (not dropped): a lock-bearing caller profile must reach
     # mkProfile intact, never silently fall back to live resolve.
-    specsLock = null;
   };
   normalized = lib.mapAttrs (name: p: profileDefaults // (if builtins.isAttrs p then p else { plugins = p; })) profiles;
   cfg = {
@@ -59,7 +57,7 @@ let
   declarations = lib.mapAttrs (name: p:
     profilesLib.mkProfile {
       inherit name;
-      inherit (p) plugins userPatchesFile userPatches specsHash specsLock;
+      inherit (p) plugins userPatchesFile userPatches;
       inherit inBoxNames;
     }) normalized;
   artifacts = lib.mapAttrs (name: d: profilesLib.buildProfile { inherit pkgs; profile = d; }) declarations;

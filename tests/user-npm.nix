@@ -37,7 +37,6 @@ let
     plugins = [ userPkg ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
   };
 
   artifact = profilesLib.buildProfile { inherit pkgs profile; };
@@ -54,7 +53,6 @@ let
       plugins = [ missingDrv ];
       userPatchesFile = null;
       userPatches = [ ];
-      specsHash = "";
     };
   };
 
@@ -65,7 +63,6 @@ let
       plugins = [ userPkg userPkg ];
       userPatchesFile = null;
       userPatches = [ ];
-      specsHash = "";
     };
   };
 

@@ -14,11 +14,12 @@
 #     shipped profile templates, the shipped optional bundles, and the
 #     on-demand subagent bundles linked from the pinned dsh source)
 #                                      name only, nothing to package
-#   - pnpm spec strings    ("github:someone/plugin")          resolved at build
-#     time by a fixed-output derivation; pin with `specsHash`
 #   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
+#
+# Plugins that are not official bundles must be provided as Nix packages or
+# paths (package them yourself); bare non-official names are rejected.
 #
 # A profile with `extends` set starts from that shipped template: the bundles
 # come from the dsh installation (PROFILE_TEMPLATES) at build time,
@@ -69,9 +70,8 @@ let
         default = [ ];
         description = ''
           Entries appended to the template profile after its template bundles.
-          Accepts the same forms as plugins (official bundle names, pnpm spec
-          strings, Nix packages, plugin paths); spec entries use this
-          template's specsHash/specsLock. Only the listed entries are added;
+          Accepts the same forms as plugins (official bundle names, Nix
+          packages, plugin paths). Only the listed entries are added;
           everything else keeps the template's settings.
         '';
       };
@@ -88,16 +88,6 @@ let
           userPatchesFile for !!js). Overrides only the rows it names, on top
           of the template's bundles.
         '';
-      };
-      specsHash = lib.mkOption {
-        type = lib.types.str;
-        default = "";
-        description = "Fixed-output hash verifying a spec-plugin artifact added through extraPlugins.";
-      };
-      specsLock = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
-        description = "Lockfile pinning spec-plugin resolution for extraPlugins.";
       };
     };
   };
@@ -128,8 +118,8 @@ let
         default = [ ];
         description = ''
           Entries appended after the extended template's bundles. Accepts the
-          same forms as plugins (official bundle names, pnpm spec strings, Nix
-          packages, plugin paths). Only valid together with `extends`.
+          same forms as plugins (official bundle names, Nix packages, plugin
+          paths). Only valid together with `extends`.
         '';
       };
       plugins = lib.mkOption {
@@ -139,8 +129,8 @@ let
           Full custom plugin list: the profile is entirely user-defined, uses
           no template, and may therefore share a name with an enabled template
           only after that template profile is disabled. Accepts official
-          bundle names, pnpm spec strings, Nix packages, and plugin paths.
-          Mutually exclusive with `extends`.
+          bundle names, Nix packages, and plugin paths. Mutually exclusive
+          with `extends`.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -156,21 +146,6 @@ let
           for !!js). This is also how an installed cordis plugin package without
           a bundle of its own is mounted by name, for example
           { insert = [ { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; } ]; }.
-        '';
-      };
-      specsHash = lib.mkOption {
-        type = lib.types.str;
-        default = "";
-        description = "Fixed-output hash verifying the built spec-plugin artifact. To pin dependency resolution as well, specify specsLock.";
-      };
-      specsLock = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
-        description = ''
-          A Git-managed pnpm-lock.yaml that pins spec-plugin dependency resolution.
-          When set, the manifest is reconstructed from the root importer and built with --frozen-lockfile.
-          Lockfiles that disagree with the declaration are rejected; there is no fallback to unpinned resolution.
-          Without it, hash-only setups re-resolve registry version ranges at build time.
         '';
       };
     };
@@ -208,7 +183,7 @@ let
     profilesLib.mkProfile {
       inherit name;
       extends = name;
-      inherit (t) extraPlugins userPatchesFile userPatches specsHash specsLock;
+      inherit (t) extraPlugins userPatchesFile userPatches;
       inherit inBoxNames;
       installBundles = onDemandBundles;
     }) (lib.filterAttrs (_: t: t.enable) checkedTemplates);
@@ -218,7 +193,7 @@ let
       inherit name;
       extends = p.extends;
       plugins = if p.plugins == null then [ ] else p.plugins;
-      inherit (p) extraPlugins userPatchesFile userPatches specsHash specsLock;
+      inherit (p) extraPlugins userPatchesFile userPatches;
       inherit inBoxNames;
       installBundles = onDemandBundles;
     }) (lib.filterAttrs (_: p: p.enable) checkedProfiles);

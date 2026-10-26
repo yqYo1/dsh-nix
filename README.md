@@ -4,7 +4,7 @@ Build [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`
 The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
-- **profile builder**: resolves plugin dependencies and composes profiles at build time.
+- **profile builder**: composes profiles from bundles, Nix packages, and plugin paths at build time.
 - **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the two on-demand subagent bundles are linked from the installed dsh tree (built from the pinned source). Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
 - **built-in profile templates**: the five shipped templates are installed by default as profiles, can be extended in place, replaced by a same-named user profile, or disabled individually.
 - **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
@@ -16,15 +16,13 @@ DSH has two units. A **cordis plugin** is a runtime component; every part of the
 The `plugins` list follows that model: an entry that declares `dsh.bundle` contributes a layer, and a package without it is a dependency that rows can name. Profile `plugins` and `extraPlugins` accept the following forms, mixed in declaration order:
 
 - **official bundle**: a name such as `"@deepseek-ai/dsh-base"` — nothing to package (see [Official bundles](#official-bundles)).
-- **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
 - **Nix package**: an out-of-tree derivation such as `pkgs.buildNpmPackage { ... }`; linked into the profile with its built dependency closure intact.
 - **Nix path**: a prebuilt plugin directory with `package.json` at its root, such as `./my-plugin`; required runtime dependencies must be contained in that directory.
 
 Each entry that declares `dsh.bundle.patch` contributes a layer.
-Bundle declaration order is the layer order and does not depend on pnpm manifest or lockfile key order.
-Spec transitive/peer dependencies stay in the runtime graph and are never promoted to direct profile plugins or bundles.
+Bundle declaration order is the layer order.
 Scoped packages are linked per package inside their scope directory, so they coexist with Nix-provided plugins in the same scope.
-If a spec and a Nix-provided plugin share a package name, the build fails.
+If two entries share a package name, the build fails.
 
 ### Official bundles
 
@@ -128,13 +126,12 @@ programs.dsh = {
     extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
   };
   # A fully custom profile: no template; `plugins` is the whole composition.
+  # Non-official plugins are Nix packages or paths (see below).
   profiles.custom = {
     plugins = [
       "@deepseek-ai/dsh-base"
-      "dsh-codex@0.3.2"
+      myPlugin
     ];
-    specsLock = ./custom-pnpm-lock.yaml;
-    specsHash = "sha256-..."; # use the hash reported by the real build
     userPatchesFile = ./patches.yml;
   };
   homePatchesFile = ./home-patches.yml;
@@ -145,7 +142,7 @@ programs.dsh = {
 `web`, `headless`, `sdk`, `sdk-minimal`, and `acp` are the shipped profile templates (upstream `PROFILE_TEMPLATES`).
 All five default to enabled; their bundle list is read from the installed dsh at build time, so it is never maintained here.
 `templates.<name>.enable = false` removes one template profile; disabling all five installs no template profiles.
-`templates.<name>.extraPlugins` and `templates.<name>.userPatches` add entries or override only the rows they name. `extraPlugins` accepts the same forms as `plugins`; spec entries use that template's `specsLock`/`specsHash`. A bundle already contributed by the template cannot be listed again (the build fails), whether extending it in place or through `extends`; template bundles cannot be removed.
+`templates.<name>.extraPlugins` and `templates.<name>.userPatches` add entries or override only the rows they name. `extraPlugins` accepts the same forms as `plugins`. A bundle already contributed by the template cannot be listed again (the build fails), whether extending it in place or through `extends`; template bundles cannot be removed.
 `profiles.<name>` declares a user-defined profile and must set either `plugins` (full custom composition) or `extends = "<template>"` (template bundles and settings with `extraPlugins`/`userPatches` applied on top), not both. For a user profile, `extraPlugins` requires `extends`; `profiles.<name>.enable = false` removes a user profile. `profiles` starts empty; the five templates above are the only profiles installed by default.
 
 The template profile and a user profile of the same name are exclusive: `profiles.web` requires `templates.web.enable = false`, otherwise evaluation fails. An `extends` reference does not require the template profile to be enabled, so `profiles.research.extends = "web"` works with `templates.web.enable = false`.
@@ -161,8 +158,8 @@ The home-level patch (`homePatchesFile`) is applied after each profile's own pat
 
 - `programs.dsh.enable` — install the CLI and run profile activation.
 - `programs.dsh.package` — the CLI derivation; defaults to `pkgs.dsh` via the overlay or the bundled build. Keep it the unwrapped dsh installation: template profiles read `PROFILE_TEMPLATES` from it and on-demand bundles link its source tree.
-- `programs.dsh.templates.<name>` — a shipped template profile: `enable` (default `true`), `extraPlugins`, `userPatches`/`userPatchesFile`, `specsHash`/`specsLock`.
-- `programs.dsh.profiles.<name>` — a user-defined profile: `enable` (default `true`), `extends`, `extraPlugins`, `plugins`, `userPatches`/`userPatchesFile`, `specsHash`/`specsLock`.
+- `programs.dsh.templates.<name>` — a shipped template profile: `enable` (default `true`), `extraPlugins`, `userPatches`/`userPatchesFile`.
+- `programs.dsh.profiles.<name>` — a user-defined profile: `enable` (default `true`), `extends`, `extraPlugins`, `plugins`, `userPatches`/`userPatchesFile`.
 - `programs.dsh.homePatchesFile` — machine-level `cordis.patch.yml`, applied after each profile's patch layer.
 - `programs.dsh.settings` — seed-only `settings.yaml` content, written only when the file does not exist.
 
@@ -180,8 +177,7 @@ dsh --profile web # http://127.0.0.1:3080
 nix build --accept-flake-config .#dsh
 nix build --accept-flake-config .#web
 nix build --accept-flake-config .#headless
-nix build --accept-flake-config .#tui-spec
-nix eval --accept-flake-config .#profiles.tui-spec --json
+nix eval --accept-flake-config .#profiles.tui --json
 ```
 
 The `default` package is `dsh`.
@@ -191,10 +187,9 @@ Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
 
 ## Out-of-tree npm plugin packages
 
-A `pkgs.buildNpmPackage` derivation is passed directly in `plugins` or `extraPlugins`.
+dsh-nix does not accept pnpm/Git spec strings or compute dependency hashes for you: a plugin that is not an official bundle must be built as a Nix derivation (or provided as a plugin path) and passed in `plugins` or `extraPlugins`.
+A `pkgs.buildNpmPackage` derivation is passed directly there; the user owns the package declaration and its hash.
 The source, `package-lock.json`, `npmDepsHash`, and build settings are managed by the user's package declaration; dsh-nix composes the finished plugin into the profile.
-Profiles that declare only Nix-provided plugins do not need `specsLock`/`specsHash`.
-When spec plugins are mixed in, specify them as before for the spec side's dependency pinning.
 
 The example below adds to the configuration importing the Home Manager module from the previous section.
 `./my-plugin` is an npm project containing `package.json`, `package-lock.json`, the patch referenced by `dsh.bundle.patch`, and the runtime source.
@@ -228,26 +223,6 @@ Zero or multiple candidates fail the build.
 The package name is read from the selected `package.json` `name`, not the derivation `pname`.
 The plugin's `node_modules` is preserved without moving or flattening, so transitive dependencies resolve from the plugin's existing layout.
 
-## Pinning spec plugin dependencies
-
-`specsLock` takes a pnpm 11 `pnpm-lock.yaml` that declares only the target spec plugins as direct dependencies of the root importer (`.`).
-Extra workspace importers are not allowed.
-Manage the lockfile itself, recording version, integrity, and peer dependency combinations, in Git along with your configuration.
-When adding or updating plugins, update the lockfile in the same Nix-managed pnpm 11 environment.
-An example local `file:` spec and its lockfile live in `examples/profiles/tui-spec.nix` and `examples/profiles/tui-spec-pnpm-lock.yaml`.
-
-Builds with a lockfile run with `--frozen-lockfile`.
-Mismatches with the declaration, extra direct dependencies, and missing registry integrity fail; there is no fallback to unpinned resolution.
-Even a frozen install downloads pinned packages that are not in the cache.
-
-`specsHash` is not an input to dependency resolution; it verifies the built artifact.
-After updating the lockfile, build with `specsHash = "";` and then rebuild with the `got:` value Nix actually reported.
-Preserving the full runtime graph changes the artifact, so hashes from the previous format must be re-discovered.
-
-For compatibility, hash-only setups that omit `specsLock` remain available.
-However, they re-resolve registry version ranges, so a cold build of the same configuration can produce a different artifact.
-For reproducible setups, specify both `specsLock` and `specsHash`.
-
 ## Regression verification
 
 ```sh
@@ -269,23 +244,17 @@ The user's Home Manager choice and how `homeManagerModules.dsh` is imported do n
 After updating the public flake's inputs/lock, also run `nix flake lock ./tests --update-input dsh-nix` to sync the test-side graph (a plain lock cannot see the moved `path:../.` input).
 `scripts/update-dsh.sh` retargets the `dsh` input, syncs both locks, and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
-- **validator/profile shape**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
+- **validator/profile shape**: verifies declaration order, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
 - **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and checks the on-demand list against upstream `ON_DEMAND_BUNDLES` (each must be a built bundle in the source).
 - **Bundle and row composition**: boots a profile composed with two optional bundles, boots a profile that mounts an installed plugin package by a user patch row, and links both on-demand subagent bundles from the installation (provider binaries included) into a profile that boots. A resolution guard verifies every plugin package named by a shipped bundle's rows exists in the built installation.
 - **Profile templates**: the module's template names match the pinned `PROFILE_TEMPLATES`; a template profile boots with no user bundle list; an extended template keeps its bundles, appends the extra one, and applies the user patch layer.
-- **Codex runtime**: uses a fresh HOME/XDG and a rejecting network guard to verify the real CLI, `dsh plugin exec` through the package-bundled private pnpm, and real profile boot/dispose.
 - **Out-of-tree npm plugin packages**: declares a genuine `buildNpmPackage` derivation directly and verifies standard-output root selection, rejection of ambiguous inputs, dependency imports, the CLI, and rc.2 boot and lifecycle.
-- **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for spec profiles and out-of-tree npm plugin packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
+- **HM sandbox**: runs the real activation program across multiple generations to verify materialisation, real imports, removal, re-execution, preservation of user data, and refusal of symlinks for out-of-tree npm plugin packages. Nix CLIs inside the sandbox are shims and are distinguished from real host package-install proof.
 - **HM host**: isolates HOME/XDG/Nix state in scratch and installs the given packages with the real daemon and driver 0, verifying real imports of the materialised npm plugin, its CLI, and rc.2 boot. External guards confirm the real user's profiles, gcroots, and app data remain unchanged.
 
 `scripts/check-profile.mjs` uses the pinned rc.2 path `loadProfile` → `createRuntimeResolution` → `readProfilePatches` → `boot`.
 It fails without emitting `CHECK-OK` if DSH's own startup audit fails or a non-zero exit is requested during boot.
 After boot the tree is disposed; launcher readiness is not asserted.
-This verification is not proof of authenticated generation or native compaction.
-
-`dsh-codex@0.3.2`'s `doctor` strictly compares the supported DSH API against `0.2.0-rc.1` and therefore reports a diagnostic incompatibility with exit code 1 against rc.2.
-Regression checks confirm this diagnostic as-is and never spoof package metadata.
-The `status` exit code 1 when signed out is likewise verified by distinguishing the exact `signed-out` response from import/network failures.
 Running an actual agent requires credentials.
 
 ## Notes
@@ -293,7 +262,7 @@ Running an actual agent requires credentials.
 - The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.
 - Upstream's standard profile templates are `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`; every shipped bundle, including the twelve optional `dsh-experimental-*` bundles, is usable by name with nothing to package. The accepted list is drift-checked against the pinned DSH source, so a bump that ships new bundles fails loud until the list is refreshed. The TUI example composes a local plugin bundle.
 - The two on-demand official bundles (`@deepseek-ai/dsh-subagent-codex`, `@deepseek-ai/dsh-subagent-claude-code`) are not installation dependencies, but the pinned dsh source builds them; dsh-nix links the installed package, so users name them directly and supply no hash. A dsh tag update needs no separate pin refresh.
-- Updating `specsLock`/`specsHash` and activating consumers are consumer-side management tasks. This repository's tests do not modify consumer dotfiles.
+- Plugins that are not official bundles must be provided as Nix packages or plugin paths; bare package names and pnpm spec strings are rejected at evaluation. Activating consumers is a consumer-side management task; this repository's tests do not modify consumer dotfiles.
 
 ## License
 
