@@ -8,9 +8,7 @@
 # Cordis stays DSH's runtime; this flake does not reimplement it.
 #
 #   nix flake check                         assertions + profile artifact shape
-#   nix eval .#profiles.local-plugin --json   the declared profile (ordered bundles)
-#   nix build .#packages.x86_64-linux.local-plugin   the immutable profile directory
-#   ./scripts/profile-smoke.sh              boot it with the packaged dsh CLI
+#   nix build .#dsh                         the packaged CLI
 #
 {
   description = "Nix-native DSH profile builder";
@@ -100,24 +98,6 @@
       # installs one profile per name by default; the bundles come from the
       # dsh installation at build time, never from user configuration.
       profileTemplates = [ "acp" "headless" "sdk" "sdk-minimal" "web" ];
-      localPlugin = import ./examples/profiles/local-plugin.nix {
-        inherit plugins profilesLib inBoxNames;
-      };
-      web = import ./examples/profiles/web.nix {
-        inherit profilesLib inBoxNames;
-      };
-      headless = import ./examples/profiles/headless.nix {
-        inherit profilesLib inBoxNames;
-      };
-
-      profiles = {
-        inherit
-          web
-          headless
-          ;
-        local-plugin = localPlugin;
-      };
-
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
         inherit profilesLib inBoxNames profileTemplates onDemandBundles;
@@ -140,7 +120,6 @@
         lib
         plugins
         profilesLib
-        profiles
         homeManagerModules
         ;
       inherit overlay;
@@ -168,20 +147,6 @@
           default = dshPackage;
           dsh = dshPackage;
 
-          local-plugin = profilesLib.buildProfile {
-            inherit pkgs;
-            profile = profiles.local-plugin;
-          };
-
-          web = profilesLib.buildProfile {
-            inherit pkgs;
-            profile = profiles.web;
-          };
-
-          headless = profilesLib.buildProfile {
-            inherit pkgs;
-            profile = profiles.headless;
-          };
         }
       );
 
@@ -189,26 +154,24 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          localPluginArtifact = self.packages.${system}.local-plugin;
-          expectedBundles = builtins.toJSON [ "@dsh-nix/example-plugin" ];
+          webArtifact = profilesLib.buildProfile {
+            inherit pkgs;
+            profile = profilesLib.mkProfile {
+              name = "web";
+              plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
+              inherit inBoxNames;
+            };
+          };
+          headlessArtifact = profilesLib.buildProfile {
+            inherit pkgs;
+            profile = profilesLib.mkProfile {
+              name = "headless";
+              plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-headless" ];
+              inherit inBoxNames;
+            };
+          };
         in
         {
-          profile-local-plugin =
-            pkgs.runCommand "dsh-profile-local-plugin-check"
-              {
-                nativeBuildInputs = [ pkgs.jq ];
-              }
-              ''
-                package_json=${localPluginArtifact}/package.json
-                actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
-                expected_bundles=${lib.escapeShellArg expectedBundles}
-                test "$actual_bundles" = "$expected_bundles"
-
-                test -L ${localPluginArtifact}/node_modules/@dsh-nix/example-plugin
-
-                touch "$out"
-              '';
-
           # Official-bundle drift guard: the accepted by-name set must equal
           # every bundle the installation ships.  The rule mirrors the
           # plugin-manager's own `shipped` computation: a package is an
@@ -489,28 +452,6 @@
 
           profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;
 
-          profile-boot-local-plugin =
-            pkgs.runCommand "dsh-profile-boot-local-plugin-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
-              export HOME="$TMPDIR/home"
-              home="$HOME/.dsh"
-              mkdir -p "$home/profiles"
-              cp -a ${self.packages.${system}.local-plugin} "$home/profiles/local-plugin"
-              chmod -R u+w "$home/profiles/local-plugin"
-              if ! ${pkgs.nodejs}/bin/node --expose-internals \
-                --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
-                ${./scripts/check-profile.mjs} \
-                ${self.packages.${system}.dsh} local-plugin "$home" \
-                > "$TMPDIR/check.log" 2>&1; then
-                cat "$TMPDIR/check.log" >&2
-                exit 1
-              fi
-              grep -q '^CHECK-OK$' "$TMPDIR/check.log"
-              printf 'activated\ndisposed\n' > "$TMPDIR/expected-lifecycle"
-              cmp "$TMPDIR/expected-lifecycle" "$home/example-plugin.log"
-              mkdir -p "$out"
-              cp "$home/example-plugin.log" "$out/lifecycle"
-            '';
-
           home-module =
             pkgs.runCommand "dsh-home-module-check"
               {
@@ -539,7 +480,7 @@
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
-                cp -a ${self.packages.${system}.web} "$home/profiles/web"
+                cp -a ${webArtifact} "$home/profiles/web"
                 chmod -R u+w "$home/profiles/web"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
@@ -561,7 +502,7 @@
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
-                cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
+                cp -a ${headlessArtifact} "$home/profiles/headless"
                 chmod -R u+w "$home/profiles/headless"
                 # rc.1 starts the one-shot runner during apply, without
                 # appReady. This boot-only fixture disables that row and
@@ -800,7 +741,7 @@
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
-                cp -a ${self.packages.${system}.web} "$home/profiles/web-nobase"
+                cp -a ${webArtifact} "$home/profiles/web-nobase"
                 chmod -R u+w "$home/profiles/web-nobase"
                 jq '.dsh.profile.bundles = ["@deepseek-ai/dsh-web-app"]' \
                   "$home/profiles/web-nobase/package.json" > "$TMPDIR/package.json"

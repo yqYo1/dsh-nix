@@ -227,12 +227,9 @@ dsh --profile web # http://127.0.0.1:3080
 
 ```sh
 nix build --accept-flake-config .#dsh
-nix build --accept-flake-config .#web
-nix build --accept-flake-config .#headless
-nix eval --accept-flake-config .#profiles.local-plugin --json
 ```
 
-Runnable example profiles live in [`examples/`](examples/README.md); the checks build and boot them.
+Profile composition is managed by the Home Manager module; standalone profile artifacts are not a public output.
 The `default` package is `dsh`.
 Accepting the flake configuration enables the public binary cache `yqyo1.cachix.org`.
 The public key for signature verification is pinned in `flake.nix`; downloads need no token.
@@ -245,8 +242,6 @@ Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
 nix flake check --accept-flake-config --no-update-lock-file --no-write-lock-file
 # Dedicated test flake: evaluation and sandbox activation on the pinned real Home Manager
 nix flake check ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file
-# Real local-plugin startup and disposal
-nix develop --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/profile-smoke.sh
 # profile install → activation → boot with the real daemon and driver 0
 nix develop ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh
 ```
@@ -278,8 +273,7 @@ Running an actual agent requires credentials.
 - `pkgs/` — the `dsh` package build, its pnpm-deps FOD support and the Node builtin shim.
 - `lib/` — profile composition (`profiles.nix`, `plugins.nix`) and build-time helpers (`read-profile-template.mjs`).
 - `modules/home-manager/` — the `programs.dsh` Home Manager module.
-- `examples/` — runnable example profiles and a local example plugin; the checks build and boot them.
-- `scripts/` — operator/CI commands: `update-dsh.sh`, `profile-smoke.sh`, `hm-e2e.sh`, `check-profile.mjs`.
+- `scripts/` — operator/CI commands: `update-dsh.sh`, `hm-e2e.sh`, `check-profile.mjs`.
 - `tests/` — the dedicated test flake, its fixtures (`tests/fixtures/`) and the real Home Manager harnesses.
 - `flake.nix` / `flake.lock` — the public flake and its pinned inputs; `tests/flake.lock` pins the test-side Home Manager graph.
 

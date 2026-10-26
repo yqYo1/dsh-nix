@@ -1,7 +1,0 @@
-- insert:
-    - id: dsh-nix-example-plugin
-      name: '@dsh-nix/example-plugin/plugin'
-      config:
-        markerPath: !!js dshHomePath('example-plugin.log')
-        activatedMarker: activated
-        disposedMarker: disposed
