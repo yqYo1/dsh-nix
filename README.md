@@ -13,6 +13,7 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - [Plugins](#plugins)
 - [Usage](#usage)
+- [Repository layout](#repository-layout)
 - [Notes](#notes)
 
 ## Plugins
@@ -232,6 +233,17 @@ Profile composition is managed by the Home Manager module; standalone profile ar
 The `default` package is `dsh`.
 Accepting the flake configuration enables the public binary cache `yqyo1.cachix.org`.
 The public key for signature verification is pinned in `flake.nix`; downloads need no token.
+
+## Repository layout
+
+For readers working with the code:
+
+- `flake.nix` / `flake.lock` — flake inputs and outputs: the CLI package, overlay, NixOS/Home Manager modules and checks.
+- `pkgs/` — the dsh package build, its pnpm-deps fixed-output support and the Node builtin shim.
+- `lib/` — profile composition, plugin classification and build-time helpers.
+- `modules/home-manager/` — the `programs.dsh` Home Manager module.
+- `scripts/` — repository helper commands: the profile checker, host E2E and the dsh updater.
+- `tests/` — the dedicated test flake, fixtures and Home Manager harnesses; not needed to use dsh.
 
 ## Notes
 
