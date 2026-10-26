@@ -229,9 +229,10 @@ dsh --profile web # http://127.0.0.1:3080
 nix build --accept-flake-config .#dsh
 nix build --accept-flake-config .#web
 nix build --accept-flake-config .#headless
-nix eval --accept-flake-config .#profiles.tui --json
+nix eval --accept-flake-config .#profiles.local-plugin --json
 ```
 
+Runnable example profiles live in [`examples/`](examples/README.md); the checks build and boot them.
 The `default` package is `dsh`.
 Accepting the flake configuration enables the public binary cache `yqyo1.cachix.org`.
 The public key for signature verification is pinned in `flake.nix`; downloads need no token.
@@ -244,7 +245,7 @@ Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
 nix flake check --accept-flake-config --no-update-lock-file --no-write-lock-file
 # Dedicated test flake: evaluation and sandbox activation on the pinned real Home Manager
 nix flake check ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file
-# Real TUI startup and disposal
+# Real local-plugin startup and disposal
 nix develop --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/profile-smoke.sh
 # profile install → activation → boot with the real daemon and driver 0
 nix develop ./tests --accept-flake-config --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh

@@ -27,9 +27,10 @@ let
     "official-plugin-resolution"
     "profile-boot-experimental"
     "profile-boot-headless"
-    "profile-boot-tui"
+    "profile-boot-local-plugin"
     "profile-boot-web"
     "profile-boot-web-nobase"
+    "profile-local-plugin"
     "profile-nix-plugin"
     "profile-official-on-demand"
     "profile-official-plugin"
@@ -37,7 +38,6 @@ let
     "profile-template"
     "profile-template-extension"
     "profile-templates"
-    "profile-tui"
     "profile-user-npm"
   ];
 

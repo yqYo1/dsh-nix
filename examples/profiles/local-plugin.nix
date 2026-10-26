@@ -1,10 +1,10 @@
 { plugins, profilesLib, inBoxNames }:
 profilesLib.mkProfile {
-  name = "tui";
+  name = "local-plugin";
   inherit inBoxNames;
   plugins = [
     (plugins.mkBundle {
-      path = ./../plugins/tui-core;
+      path = ./../plugins/lifecycle-probe;
     })
   ];
 }

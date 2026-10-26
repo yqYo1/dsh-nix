@@ -8,13 +8,10 @@
 # Cordis stays DSH's runtime; this flake does not reimplement it.
 #
 #   nix flake check                         assertions + profile artifact shape
-#   nix eval .#profiles.tui --json          the declared profile (ordered bundles)
-#   nix build .#packages.x86_64-linux.tui   the immutable profile directory
+#   nix eval .#profiles.local-plugin --json   the declared profile (ordered bundles)
+#   nix build .#packages.x86_64-linux.local-plugin   the immutable profile directory
 #   ./scripts/profile-smoke.sh              boot it with the packaged dsh CLI
 #
-# Optional: examples/profiles/dsh-web.nix shows importing dsh's own shipped
-# bundles (non-flake repo input) with zero transcription; wire it in when a
-# dsh checkout is visible to the flake.
 {
   description = "Nix-native DSH profile builder";
 
@@ -103,7 +100,7 @@
       # installs one profile per name by default; the bundles come from the
       # dsh installation at build time, never from user configuration.
       profileTemplates = [ "acp" "headless" "sdk" "sdk-minimal" "web" ];
-      tui = import ./examples/profiles/tui.nix {
+      localPlugin = import ./examples/profiles/local-plugin.nix {
         inherit plugins profilesLib inBoxNames;
       };
       web = import ./examples/profiles/web.nix {
@@ -115,10 +112,10 @@
 
       profiles = {
         inherit
-          tui
           web
           headless
           ;
+        local-plugin = localPlugin;
       };
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
@@ -171,9 +168,9 @@
           default = dshPackage;
           dsh = dshPackage;
 
-          tui = profilesLib.buildProfile {
+          local-plugin = profilesLib.buildProfile {
             inherit pkgs;
-            profile = profiles.tui;
+            profile = profiles.local-plugin;
           };
 
           web = profilesLib.buildProfile {
@@ -192,22 +189,22 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          tuiArtifact = self.packages.${system}.tui;
-          expectedBundles = builtins.toJSON [ "@dsh-nix/tui-core" ];
+          localPluginArtifact = self.packages.${system}.local-plugin;
+          expectedBundles = builtins.toJSON [ "@dsh-nix/lifecycle-probe" ];
         in
         {
-          profile-tui =
-            pkgs.runCommand "dsh-profile-tui-check"
+          profile-local-plugin =
+            pkgs.runCommand "dsh-profile-local-plugin-check"
               {
                 nativeBuildInputs = [ pkgs.jq ];
               }
               ''
-                package_json=${tuiArtifact}/package.json
+                package_json=${localPluginArtifact}/package.json
                 actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
                 expected_bundles=${lib.escapeShellArg expectedBundles}
                 test "$actual_bundles" = "$expected_bundles"
 
-                test -L ${tuiArtifact}/node_modules/@dsh-nix/tui-core
+                test -L ${localPluginArtifact}/node_modules/@dsh-nix/lifecycle-probe
 
                 touch "$out"
               '';
@@ -492,26 +489,26 @@
 
           profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;
 
-          profile-boot-tui =
-            pkgs.runCommand "dsh-profile-boot-tui-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+          profile-boot-local-plugin =
+            pkgs.runCommand "dsh-profile-boot-local-plugin-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
               export HOME="$TMPDIR/home"
               home="$HOME/.dsh"
               mkdir -p "$home/profiles"
-              cp -a ${self.packages.${system}.tui} "$home/profiles/tui"
-              chmod -R u+w "$home/profiles/tui"
+              cp -a ${self.packages.${system}.local-plugin} "$home/profiles/local-plugin"
+              chmod -R u+w "$home/profiles/local-plugin"
               if ! ${pkgs.nodejs}/bin/node --expose-internals \
                 --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                 ${./scripts/check-profile.mjs} \
-                ${self.packages.${system}.dsh} tui "$home" \
+                ${self.packages.${system}.dsh} local-plugin "$home" \
                 > "$TMPDIR/check.log" 2>&1; then
                 cat "$TMPDIR/check.log" >&2
                 exit 1
               fi
               grep -q '^CHECK-OK$' "$TMPDIR/check.log"
               printf 'activated\ndisposed\n' > "$TMPDIR/expected-lifecycle"
-              cmp "$TMPDIR/expected-lifecycle" "$home/tui-fixture-lifecycle.log"
+              cmp "$TMPDIR/expected-lifecycle" "$home/dsh-nix-lifecycle.log"
               mkdir -p "$out"
-              cp "$home/tui-fixture-lifecycle.log" "$out/lifecycle"
+              cp "$home/dsh-nix-lifecycle.log" "$out/lifecycle"
             '';
 
           home-module =

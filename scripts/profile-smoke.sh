@@ -3,13 +3,13 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 timeout_seconds=${DSH_PROFILE_SMOKE_TIMEOUT_SECONDS:-20}
-profile_name=${DSH_PROFILE_SMOKE_PROFILE:-tui}
+profile_name=${DSH_PROFILE_SMOKE_PROFILE:-local-plugin}
 
 home=$(mktemp -d)
 child=''
 stdout_file="$home/stdout"
 stderr_file="$home/stderr"
-marker_file="$home/tui-fixture-lifecycle.log"
+marker_file="$home/dsh-nix-lifecycle.log"
 expected_file="$home/expected"
 
 cleanup() {

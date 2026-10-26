@@ -38,7 +38,7 @@ let
     printf 'external\n' > $out/dummy.txt
   '';
 
-  nixPluginPath = ../examples/plugins/tui-core;
+  nixPluginPath = ../examples/plugins/lifecycle-probe;
   patchV1 = ./fixtures/home-patch-v1.yml;
   patchV2 = ./fixtures/home-patch-v2.yml;
 
@@ -98,7 +98,7 @@ let
       homePatchesFile = null;
       settings = { };
       profiles.agent = {
-        plugins = [ "@deepseek-ai/dsh-base" ../examples/plugins/tui-core ];
+        plugins = [ "@deepseek-ai/dsh-base" ../examples/plugins/lifecycle-probe ];
         userPatches = [ ];
       };
     };
@@ -405,7 +405,7 @@ let
         case "$base" in "'"*) fail "literal quote artifact: $d" ;; esac
       done
       pass "gen1 materialises tricky profile names exactly, no quote artifacts"
-      test -L "$homeA/.dsh/profiles/agent/node_modules/@dsh-nix/tui-core" \
+      test -L "$homeA/.dsh/profiles/agent/node_modules/@dsh-nix/lifecycle-probe" \
         || fail "agent nix plugin link missing after gen1"
       [ "$(cat "$homeA/.dsh/settings.yaml")" = "user-settings-sentinel" ] \
         || fail "seed overwrote user settings.yaml"

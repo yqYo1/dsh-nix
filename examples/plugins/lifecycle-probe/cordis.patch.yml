@@ -1,0 +1,7 @@
+- insert:
+    - id: dsh-nix-lifecycle-probe
+      name: '@dsh-nix/lifecycle-probe/plugin'
+      config:
+        markerPath: !!js dshHomePath('dsh-nix-lifecycle.log')
+        activatedMarker: activated
+        disposedMarker: disposed
