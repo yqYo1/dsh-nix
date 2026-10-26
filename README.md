@@ -5,14 +5,15 @@ The DSH source is pinned as a flake input; the current package is `0.2.1-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile builder**: resolves plugin dependencies and composes profiles at build time.
-- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the two on-demand subagent bundles are linked from the pinned dsh source. Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
+- **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the two on-demand subagent bundles are linked from the installed dsh tree (built from the pinned source). Official plugin packages that ship without a bundle of their own mount through profile patch rows. Users package nothing.
+- **built-in profile templates**: the five shipped templates are installed by default as profiles, can be extended in place, replaced by a same-named user profile, or disabled individually.
 - **`programs.dsh`**: the Home Manager module managing profile composition under `~/.dsh`. Its scope is separated from user data such as sessions, settings, and credentials.
 
 ## Plugin composition
 
 DSH has two units. A **cordis plugin** is a runtime component; every part of the product is one, and patch rows mount plugins. A **bundle** is the installable plugin unit: a package that declares `dsh.bundle`, whose patch file is an ordered layer of rows. `dsh plugin` and the plugin market only act on bundles, and a package without `dsh.bundle` installs as a plain dependency (no layer).
 
-The `plugins` list follows that model: an entry that declares `dsh.bundle` contributes a layer, and a package without it is a dependency that rows can name. Profile `plugins` accept the following forms, mixed in declaration order:
+The `plugins` list follows that model: an entry that declares `dsh.bundle` contributes a layer, and a package without it is a dependency that rows can name. Profile `plugins` and `extraPlugins` accept the following forms, mixed in declaration order:
 
 - **official bundle**: a name such as `"@deepseek-ai/dsh-base"` — nothing to package (see [Official bundles](#official-bundles)).
 - **pnpm spec**: `"dsh-codex@0.3.2"` or `"github:someone/plugin"`; builds a pnpm graph including transitive/peer dependencies at build time.
@@ -27,7 +28,7 @@ If a spec and a Nix-provided plugin share a package name, the build fails.
 
 ### Official bundles
 
-The official plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them. The 18 installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
+The official installable plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them. The 18 installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
 
 - **bundles of the shipped profile templates** (upstream `PROFILE_TEMPLATES`, resolved from the installation):
   - `@deepseek-ai/dsh-base`
@@ -49,7 +50,7 @@ The official plugin set is the official bundle set (upstream `PROFILE_TEMPLATES`
   - `@deepseek-ai/dsh-experimental-inspector-profile`
   - `@deepseek-ai/dsh-experimental-plugin-market-bundle`
   - `@deepseek-ai/dsh-experimental-tool-worktree`
-- **on-demand official bundles** (not installation dependencies; the pinned dsh source builds them and dsh-nix links the installed package, provider binaries included):
+- **on-demand official bundles** (not installation dependencies; the pinned dsh source builds them and dsh-nix links the installed package, provider binaries included — no npm fetch, version pin, lockfile, or store hash is maintained):
   - `@deepseek-ai/dsh-subagent-codex`
   - `@deepseek-ai/dsh-subagent-claude-code`
 
@@ -73,16 +74,13 @@ Not every official plugin package is a bundle: a cordis plugin such as `@deepsee
 Because the package declares no `dsh.bundle`, `dsh plugin` treats it as a plain dependency and activates no layer — the row is the mount point. Use this for plugin packages rather than expecting a layer:
 
 ```nix
-programs.dsh.profiles.web = {
-  plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
-  userPatches = [
-    {
-      insert = [
-        { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
-      ];
-    }
-  ];
-};
+programs.dsh.templates.web.userPatches = [
+  {
+    insert = [
+      { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
+    ];
+  }
+];
 ```
 
 ## Usage
@@ -113,7 +111,7 @@ programs.dsh = {
   # The five shipped templates are installed by default as profiles of the
   # same name, each taking its bundles from the dsh installation; disable one
   # individually.
-  templates.headless.enable = false;
+  templates.acp.enable = false;
   # Add or override only what you name on the web template profile.
   templates.web.extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
   templates.web.userPatches = [
@@ -145,11 +143,28 @@ programs.dsh = {
 ```
 
 `web`, `headless`, `sdk`, `sdk-minimal`, and `acp` are the shipped profile templates (upstream `PROFILE_TEMPLATES`).
-`templates.<name>.enable` installs the template profile with exactly the template's settings; `templates.<name>.extraPlugins` and `templates.<name>.userPatches` add or override only the named parts.
-`profiles.<name>` declares a user-defined profile: `plugins` is a full custom composition, and `extends = "<template>"` reuses a template's bundles and settings with `extraPlugins`/`userPatches` applied on top.
+All five default to enabled; their bundle list is read from the installed dsh at build time, so it is never maintained here.
+`templates.<name>.enable = false` removes one template profile; disabling all five installs no template profiles.
+`templates.<name>.extraPlugins` and `templates.<name>.userPatches` add entries or override only the rows they name. `extraPlugins` accepts the same forms as `plugins`; spec entries use that template's `specsLock`/`specsHash`. A bundle already contributed by the template cannot be listed again (the build fails), whether extending it in place or through `extends`; template bundles cannot be removed.
+`profiles.<name>` declares a user-defined profile and must set either `plugins` (full custom composition) or `extends = "<template>"` (template bundles and settings with `extraPlugins`/`userPatches` applied on top), not both. For a user profile, `extraPlugins` requires `extends`; `profiles.<name>.enable = false` removes a user profile. `profiles` starts empty; the five templates above are the only profiles installed by default.
 
-The template profile and a user profile of the same name are exclusive: `profiles.web` requires `templates.web.enable = false`, otherwise evaluation fails.
-An `extends` reference does not require the template profile to be enabled, so `profiles.research.extends = "web"` works with `templates.web.enable = false`.
+The template profile and a user profile of the same name are exclusive: `profiles.web` requires `templates.web.enable = false`, otherwise evaluation fails. An `extends` reference does not require the template profile to be enabled, so `profiles.research.extends = "web"` works with `templates.web.enable = false`.
+
+An existing configuration that declared `profiles.web.plugins = [...]` is a fully custom profile and now clashes with the default `templates.web`; set `templates.web.enable = false` to keep it, or move the additions to `templates.web.extraPlugins`/`userPatches`.
+
+Profile names are single path components under `~/.dsh/profiles`. Empty names, `.`, `..`, `node_modules`, names containing `/` or `\\`, and control characters are rejected.
+`userPatches` is JSON-serialisable only; use `userPatchesFile` for `!!js` expressions.
+The home-level patch (`homePatchesFile`) is applied after each profile's own patch layer.
+`dsh --profile <name> --dump-config` prints the effective composition for inspection.
+
+### Module options
+
+- `programs.dsh.enable` — install the CLI and run profile activation.
+- `programs.dsh.package` — the CLI derivation; defaults to `pkgs.dsh` via the overlay or the bundled build. Keep it the unwrapped dsh installation: template profiles read `PROFILE_TEMPLATES` from it and on-demand bundles link its source tree.
+- `programs.dsh.templates.<name>` — a shipped template profile: `enable` (default `true`), `extraPlugins`, `userPatches`/`userPatchesFile`, `specsHash`/`specsLock`.
+- `programs.dsh.profiles.<name>` — a user-defined profile: `enable` (default `true`), `extends`, `extraPlugins`, `plugins`, `userPatches`/`userPatchesFile`, `specsHash`/`specsLock`.
+- `programs.dsh.homePatchesFile` — machine-level `cordis.patch.yml`, applied after each profile's patch layer.
+- `programs.dsh.settings` — seed-only `settings.yaml` content, written only when the file does not exist.
 
 Activation materialises each immutable profile into `~/.dsh/profiles/<name>` and skips re-materialising an identical profile directory via its stamp.
 Profiles owned by the module are updated and removed; sessions, settings, credentials, and unmanaged profiles are preserved.
@@ -163,6 +178,8 @@ dsh --profile web # http://127.0.0.1:3080
 
 ```sh
 nix build --accept-flake-config .#dsh
+nix build --accept-flake-config .#web
+nix build --accept-flake-config .#headless
 nix build --accept-flake-config .#tui-spec
 nix eval --accept-flake-config .#profiles.tui-spec --json
 ```
@@ -174,7 +191,7 @@ Cache uploads from GitHub Actions use the repository secret `CACHIX_AUTH_TOKEN`.
 
 ## Out-of-tree npm plugin packages
 
-A `pkgs.buildNpmPackage` derivation is passed directly in `plugins`.
+A `pkgs.buildNpmPackage` derivation is passed directly in `plugins` or `extraPlugins`.
 The source, `package-lock.json`, `npmDepsHash`, and build settings are managed by the user's package declaration; dsh-nix composes the finished plugin into the profile.
 Profiles that declare only Nix-provided plugins do not need `specsLock`/`specsHash`.
 When spec plugins are mixed in, specify them as before for the spec side's dependency pinning.
@@ -250,7 +267,7 @@ This mirrors the [catppuccin/nix dev-flake](https://github.com/catppuccin/nix/bl
 Relative inputs (`path:../.`) require Nix >= 2.26.
 The user's Home Manager choice and how `homeManagerModules.dsh` is imported do not change.
 After updating the public flake's inputs/lock, also run `nix flake lock ./tests --update-input dsh-nix` to sync the test-side graph (a plain lock cannot see the moved `path:../.` input).
-The DSH updater syncs both locks and then runs the public checks, the dedicated tests checks, and the real host E2E.
+`scripts/update-dsh.sh` retargets the `dsh` input, syncs both locks, and then runs the public checks, the dedicated tests checks, and the real host E2E.
 
 - **validator/profile shape**: verifies declaration order, pinned lock bytes, same-scope coexistence, direct-plugin-only projection, and real transitive imports.
 - **Official bundles**: drift-checks the accepted bundle set against the pinned DSH source (installation `dependencies` ∩ `dsh.bundle.patch`) and checks the on-demand list against upstream `ON_DEMAND_BUNDLES` (each must be a built bundle in the source).
@@ -274,7 +291,7 @@ Running an actual agent requires credentials.
 ## Notes
 
 - The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.
-- Upstream's standard profile templates are `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`; every shipped bundle, including the twelve optional `dsh-experimental-*` bundles, is usable by name with nothing to package. The accepted list is drift-checked against the pinned DSH source, so a bump that ships new bundles fails loud until the list is refreshed. The TUI is composed as a plugin.
+- Upstream's standard profile templates are `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`; every shipped bundle, including the twelve optional `dsh-experimental-*` bundles, is usable by name with nothing to package. The accepted list is drift-checked against the pinned DSH source, so a bump that ships new bundles fails loud until the list is refreshed. The TUI example composes a local plugin bundle.
 - The two on-demand official bundles (`@deepseek-ai/dsh-subagent-codex`, `@deepseek-ai/dsh-subagent-claude-code`) are not installation dependencies, but the pinned dsh source builds them; dsh-nix links the installed package, so users name them directly and supply no hash. A dsh tag update needs no separate pin refresh.
 - Updating `specsLock`/`specsHash` and activating consumers are consumer-side management tasks. This repository's tests do not modify consumer dotfiles.
 
