@@ -273,6 +273,16 @@ It fails without emitting `CHECK-OK` if DSH's own startup audit fails or a non-z
 After boot the tree is disposed; launcher readiness is not asserted.
 Running an actual agent requires credentials.
 
+## Repository layout
+
+- `pkgs/` — the `dsh` package build, its pnpm-deps FOD support and the Node builtin shim.
+- `lib/` — profile composition (`profiles.nix`, `plugins.nix`) and build-time helpers (`read-profile-template.mjs`).
+- `modules/home-manager/` — the `programs.dsh` Home Manager module.
+- `examples/` — runnable example profiles and a local example plugin; the checks build and boot them.
+- `scripts/` — operator/CI commands: `update-dsh.sh`, `profile-smoke.sh`, `hm-e2e.sh`, `check-profile.mjs`.
+- `tests/` — the dedicated test flake, its fixtures (`tests/fixtures/`) and the real Home Manager harnesses.
+- `flake.nix` / `flake.lock` — the public flake and its pinned inputs; `tests/flake.lock` pins the test-side Home Manager graph.
+
 ## Notes
 
 - The `deepseek-harness-pnpm-deps` fixed-output derivation is always fetched with a dedicated pinned nixpkgs (`nixpkgs-fetch`), independent of the `nixpkgs` input, so following your own nixpkgs (`inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs"`) keeps the pinned deps hash valid. Never add `follows` to `nixpkgs-fetch`. The nixpkgs that builds the rest of the package must provide `pnpmConfigHook` and pnpm 11.

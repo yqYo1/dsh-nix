@@ -23,7 +23,7 @@
 # home-manager --set` performs the profile install owned by pinned Home
 # Manager, and `nix-env -i home-manager-path` installs cfg.package.
 #
-# The single `agent` profile uses ONLY examples/plugins/lifecycle-probe (a plain
+# The single `agent` profile uses ONLY tests/fixtures/lifecycle-probe (a plain
 # path plugin: no in-box bundles, no network) whose apply()
 # appends `activated` and whose dispose appends `disposed` to
 # $DSH_HOME/dsh-nix-lifecycle.log.
@@ -80,7 +80,7 @@ let
   # Fixture profile declaration, shared verbatim with the user module below
   # so the expected artifact path matches the installed one exactly.
   agentDecl = {
-    plugins = [ ../examples/plugins/lifecycle-probe ];
+    plugins = [ ./fixtures/lifecycle-probe ];
     userPatchesFile = null;
     userPatches = [ ];
   };

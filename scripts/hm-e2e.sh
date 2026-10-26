@@ -16,7 +16,7 @@
 #      $HOME/.nix-profile. The script asserts both landings and refuses to
 #      continue otherwise -- never faking success.
 #   3. The profile-installed dsh boots the fixture `agent` profile
-#      (examples/plugins/lifecycle-probe, path-only, no network): the marker shows
+#      (tests/fixtures/lifecycle-probe, path-only, no network): the marker shows
 #      `activated`, then SIGTERM yields clean exit 0 and `disposed`.
 #   4. The directly declared `user-npm` profile (the RAW buildNpmPackage
 #      derivation in plugins, no selectors/surgery) lands with stamp ==

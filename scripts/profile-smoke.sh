@@ -9,7 +9,7 @@ home=$(mktemp -d)
 child=''
 stdout_file="$home/stdout"
 stderr_file="$home/stderr"
-marker_file="$home/dsh-nix-lifecycle.log"
+marker_file="$home/example-plugin.log"
 expected_file="$home/expected"
 
 cleanup() {

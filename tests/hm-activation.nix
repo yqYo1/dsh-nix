@@ -13,7 +13,7 @@
 #   homePatchesFile  machine-level patch layer path or null
 { pkgs
 , profiles ? {
-    agent.plugins = [ "@deepseek-ai/dsh-base" ../examples/plugins/lifecycle-probe ];
+    agent.plugins = [ "@deepseek-ai/dsh-base" ./fixtures/lifecycle-probe ];
   }
 , settings ? { }
 , homePatchesFile ? null

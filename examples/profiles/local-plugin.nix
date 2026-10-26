@@ -4,7 +4,7 @@ profilesLib.mkProfile {
   inherit inBoxNames;
   plugins = [
     (plugins.mkBundle {
-      path = ./../plugins/lifecycle-probe;
+      path = ./../plugins/example-plugin;
     })
   ];
 }

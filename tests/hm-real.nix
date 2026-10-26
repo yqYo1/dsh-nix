@@ -38,7 +38,7 @@ let
     printf 'external\n' > $out/dummy.txt
   '';
 
-  nixPluginPath = ../examples/plugins/lifecycle-probe;
+  nixPluginPath = ./fixtures/lifecycle-probe;
   patchV1 = ./fixtures/home-patch-v1.yml;
   patchV2 = ./fixtures/home-patch-v2.yml;
 
@@ -98,7 +98,7 @@ let
       homePatchesFile = null;
       settings = { };
       profiles.agent = {
-        plugins = [ "@deepseek-ai/dsh-base" ../examples/plugins/lifecycle-probe ];
+        plugins = [ "@deepseek-ai/dsh-base" ./fixtures/lifecycle-probe ];
         userPatches = [ ];
       };
     };

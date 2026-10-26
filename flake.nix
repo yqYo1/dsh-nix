@@ -190,7 +190,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           localPluginArtifact = self.packages.${system}.local-plugin;
-          expectedBundles = builtins.toJSON [ "@dsh-nix/lifecycle-probe" ];
+          expectedBundles = builtins.toJSON [ "@dsh-nix/example-plugin" ];
         in
         {
           profile-local-plugin =
@@ -204,7 +204,7 @@
                 expected_bundles=${lib.escapeShellArg expectedBundles}
                 test "$actual_bundles" = "$expected_bundles"
 
-                test -L ${localPluginArtifact}/node_modules/@dsh-nix/lifecycle-probe
+                test -L ${localPluginArtifact}/node_modules/@dsh-nix/example-plugin
 
                 touch "$out"
               '';
@@ -360,7 +360,7 @@
               }
               ''
                 templates=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
-                  ${./scripts/read-profile-template.mjs} "$install") || exit 1
+                  ${./lib/read-profile-template.mjs} "$install") || exit 1
                 printf '%s\n' "$names" | jq -r '.[]' | sort > "$TMPDIR/want.txt"
                 printf '%s' "$templates" | jq -r 'keys[]' | sort > "$TMPDIR/have.txt"
                 if ! diff -u "$TMPDIR/want.txt" "$TMPDIR/have.txt"; then
@@ -399,7 +399,7 @@
               }
               ''
                 expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
-                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                  ${./lib/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
                 jq -e --argjson want "$expected" '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
                   || { echo "profile-template: bundles differ from PROFILE_TEMPLATES.web" >&2; exit 1; }
                 home="$TMPDIR/home"
@@ -450,7 +450,7 @@
               }
               ''
                 expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
-                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                  ${./lib/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
                 jq -e --argjson want "$(printf '%s' "$expected" | jq -c '. + ["@deepseek-ai/dsh-experimental-session-search"]')" \
                   '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
                   || { echo "profile-template-extension: template bundles were not kept in order" >&2; exit 1; }
@@ -506,9 +506,9 @@
               fi
               grep -q '^CHECK-OK$' "$TMPDIR/check.log"
               printf 'activated\ndisposed\n' > "$TMPDIR/expected-lifecycle"
-              cmp "$TMPDIR/expected-lifecycle" "$home/dsh-nix-lifecycle.log"
+              cmp "$TMPDIR/expected-lifecycle" "$home/example-plugin.log"
               mkdir -p "$out"
-              cp "$home/dsh-nix-lifecycle.log" "$out/lifecycle"
+              cp "$home/example-plugin.log" "$out/lifecycle"
             '';
 
           home-module =
