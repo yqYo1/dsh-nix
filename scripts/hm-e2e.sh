@@ -240,10 +240,12 @@ nixpkgs_rev=$(nix eval --impure --raw --accept-flake-config --no-update-lock-fil
 echo "hm host e2e: pinned home-manager $hm_rev / nixpkgs $nixpkgs_rev (system $system)"
 echo "hm host e2e: eval gate (drvPath only, no build)..."
 drv=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr \
-  "let h = $base; in assert h.checks.packageExact; assert h.checks.dagOrdered; assert h.checks.layoutOk; assert h.checks.userNpmLayoutOk; h.activationDrvPath") ||
-  fail "eval gate failed (packageExact/dagOrdered/layoutOk/userNpmLayoutOk); fixture or module regressed"
+  "let h = $base; in assert h.checks.packageExact; assert h.checks.dagOrdered; assert h.checks.layoutOk; assert h.checks.userNpmLayoutOk; assert h.checks.codexLayoutOk; h.activationDrvPath") ||
+  fail "eval gate failed (packageExact/dagOrdered/layoutOk/userNpmLayoutOk/codexLayoutOk); fixture or module regressed"
 expected_artifact=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.expectedAgentArtifact") ||
   fail "could not evaluate expected agent artifact path"
+expected_codex=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.expectedCodexArtifact") ||
+  fail "could not evaluate expected codex artifact path"
 expected_usernpm=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.expectedUserNpmArtifact") ||
   fail "could not evaluate expected user-npm artifact path"
 usernpm_out=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.userNpmOutPath") ||
@@ -260,7 +262,7 @@ pkg_out=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --
   fail "could not evaluate packaged dsh outPath"
 pkg_drv=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.packageDrvPath") ||
   fail "could not evaluate packaged dsh drvPath"
-echo "hm host e2e: eval gate passed; activation drv $drv; package $pkg_out; package drv $pkg_drv; user-npm $expected_usernpm (pkg $usernpm_out); node $node_out"
+echo "hm host e2e: eval gate passed; activation drv $drv; package $pkg_out; package drv $pkg_drv; codex $expected_codex; user-npm $expected_usernpm (pkg $usernpm_out); node $node_out"
 
 # --- daemon gate: scratch NIX_STATE_DIR must not mean a local empty store --
 echo "hm host e2e: daemon gate (NIX_REMOTE=$NIX_REMOTE, NIX_STATE_DIR=$NIX_STATE_DIR)..."
@@ -360,6 +362,42 @@ fi
 grep -q 'NETWORK_FORBIDDEN' "$tmp/guard-proof.err" ||
   fail "guard error signature missing"
 echo "hm host e2e: no-network guard rejects egress"
+# --- Nix-packaged third-party plugin via the HM flake (user route) --------
+codex_dir="$HOME/.dsh/profiles/codex"
+codex_stamp="$codex_dir/.dsh-nix-stamp"
+test -d "$codex_dir" || fail "codex dir missing after activation"
+test -f "$codex_dir/package.json" || fail "codex package.json missing after activation"
+test -f "$codex_stamp" || fail "codex stamp missing after activation"
+[[ "$(cat "$codex_stamp")" == "$expected_codex" ]] ||
+  fail "codex stamp != expected artifact (got: $(cat "$codex_stamp"), want: $expected_codex)"
+codex_bundles=$(jq -c '.dsh.profile.bundles' "$codex_dir/package.json") ||
+  fail "codex package.json bundles unreadable"
+[[ "$codex_bundles" == '["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dsh-codex"]' ]] ||
+  fail "codex bundles != declared composition (got: $codex_bundles)"
+jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live"' \
+  "$codex_dir/cordis.patch.yml" >/dev/null || fail "codex user layer mutated"
+test -L "$codex_dir/node_modules/dsh-codex" || fail "codex Nix plugin link missing"
+echo "hm host e2e: codex (Nix-packaged plugin) stamp/composition/link from activated paths"
+
+# The Nix-packaged plugin must boot under the real installed CLI.
+check_home="$tmp/check-home-codex"
+mkdir -p "$check_home/.local/share" "$check_home/.local/state" "$check_home/.config" "$check_home/.cache"
+if ! env -i PATH="$child_path" HOME="$check_home" \
+  XDG_DATA_HOME="$check_home/.local/share" XDG_STATE_HOME="$check_home/.local/state" \
+  XDG_CONFIG_HOME="$check_home/.config" XDG_CACHE_HOME="$check_home/.cache" \
+  NODE_OPTIONS="--require $net_guard" \
+  "$node_bin" --expose-internals \
+  --require "$pkg_out/lib/dsh-builtin-compat.cjs" \
+  "$checker" "$pkg_out" codex "$HOME/.dsh" --port 0 --no-open \
+  >"$tmp/check-codex.log" 2>&1; then
+  cat "$tmp/check-codex.log" >&2
+  fail "codex profile boot via packaged check-profile (see $tmp/check-codex.log)"
+fi
+grep -q '^CHECK-OK$' "$tmp/check-codex.log" || fail "codex boot lacks CHECK-OK"
+grep -Eq 'NETWORK_FORBIDDEN|ERR_MODULE_NOT_FOUND|Cannot find package' "$tmp/check-codex.log" &&
+  fail "codex boot hit network/import failure"
+echo "hm host e2e: codex profile boot CHECK-OK under rejecting guard (port 0, no-open)"
+
 # --- directly declared user-npm: stamp, scoped shape, installed root -----
 # Activated paths only (never derivation string shape, never the pname).
 # The byte-identity proofs live before the user-npm checker boot below,
@@ -547,6 +585,8 @@ cp "$after" "$artifact_dir/idempotence-after.txt"
   echo "package_out (immutable): $pkg_out"
   echo "package_deriver: $pkg_deriver"
   echo "dsh: $dsh_real"
+  echo "codex_artifact (immutable): $expected_codex"
+  echo "codex_stamp: $(cat "$codex_stamp")"
   echo "usernpm_artifact (immutable): $expected_usernpm"
   echo "usernpm_stamp: $(cat "$usernpm_stamp")"
   echo "usernpm_root (immutable): $usernpm_root"
@@ -557,6 +597,7 @@ cp "$tmp/activation.log" "$artifact_dir/activation.log"
 cp "$tmp/nix-build.log" "$artifact_dir/nix-build.log" 2>/dev/null || true
 cp "$tmp/nix-build-node.log" "$artifact_dir/nix-build-node.log" 2>/dev/null || true
 cp "$tmp/guard-proof.err" "$artifact_dir/guard-proof.err"
+cp "$tmp/check-codex.log" "$artifact_dir/check-codex.log"
 cp "$tmp/usernpm-import.log" "$artifact_dir/usernpm-import.log"
 cp "$tmp/usernpm-check7.out" "$artifact_dir/usernpm-check7.out"
 cp "$tmp/usernpm-check8.out" "$artifact_dir/usernpm-check8.out"

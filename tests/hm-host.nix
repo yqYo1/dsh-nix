@@ -51,6 +51,20 @@ let
     inherit pluginsLib profilesLib inBoxNames dshSrc;
   };
 
+  # Real third-party plugin packaged as a Nix derivation (the user route):
+  # the fixture builds dsh-codex from a pinned closure; the module receives
+  # the derivation directly in `plugins`.
+  codexPlugin = import ./fixtures/codex-plugin.nix { inherit pkgs; };
+  codexDecl = {
+    plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" codexPlugin ];
+    userPatches = [
+      {
+        id = "llm-openai-codex";
+        config = { searchMode = "live"; useNativeCompaction = true; };
+      }
+    ];
+  };
+
   # Genuine user-declared buildNpmPackage plugin, passed RAW (no
   # mkBundle selectors, no installed-root path surgery): the
   # build-time resolver reads the installed root
@@ -88,6 +102,7 @@ let
       settings = { };
       profiles = {
         agent = agentDecl;
+        codex = codexDecl;
         user-npm = userNpmDecl;
       };
     };
@@ -111,6 +126,13 @@ let
       name = "agent";
       inherit inBoxNames;
     } // agentDecl);
+  });
+  expectedCodexArtifact = toString (profilesLib.buildProfile {
+    inherit pkgs;
+    profile = profilesLib.mkProfile ({
+      name = "codex";
+      inherit inBoxNames;
+    } // codexDecl);
   });
   # Expected immutable user-npm artifact, built from THE SAME module
   # declaration above (store-path string only, same as above).
@@ -147,8 +169,9 @@ in
       && activationValue.after == [ "writeBoundary" ];
     layoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/agent" activationScript;
     userNpmLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/user-npm" activationScript;
+    codexLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/codex" activationScript;
   };
-  inherit expectedAgentArtifact;
+  inherit expectedAgentArtifact expectedCodexArtifact;
   inherit expectedUserNpmArtifact;
   # Immutable installed package path of the raw user derivation (the
   # effective root lives at $out/lib/node_modules/@dsh-poc/user-npm-plugin;

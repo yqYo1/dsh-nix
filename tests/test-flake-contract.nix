@@ -30,6 +30,7 @@ let
     "profile-boot-tui"
     "profile-boot-web"
     "profile-boot-web-nobase"
+    "profile-nix-plugin"
     "profile-official-on-demand"
     "profile-official-plugin"
     "profile-regression"

@@ -687,6 +687,60 @@
                 touch "$out"
               '';
 
+          # A real third-party plugin packaged as a Nix derivation (the user
+          # route): the fixture builds dsh-codex from a pinned closure and the
+          # profile links it like any Nix plugin; no profile-level spec/hash
+          # API is involved.
+          profile-nix-plugin =
+            let
+              plugin = import ./tests/fixtures/codex-plugin.nix { inherit pkgs; };
+              profile = profilesLib.mkProfile {
+                name = "nix-plugin";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                  plugin
+                ];
+                userPatches = [
+                  {
+                    id = "llm-openai-codex";
+                    config = { searchMode = "live"; useNativeCompaction = true; };
+                  }
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-nix-plugin-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
+                  ${artifact}/package.json >/dev/null
+                test -L ${artifact}/node_modules/dsh-codex
+                jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live"' \
+                  ${artifact}/cordis.patch.yml >/dev/null
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/nix-plugin"
+                chmod -R u+w "$home/profiles/nix-plugin"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} nix-plugin "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
           # Official ON-DEMAND bundles by name: dsh-subagent-codex and
           # dsh-subagent-claude-code are not installation dependencies, but the
           # pinned dsh source builds them; dsh-nix links the installed package
