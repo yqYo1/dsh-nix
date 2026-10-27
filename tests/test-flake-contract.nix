@@ -30,16 +30,14 @@ let
     "profile-boot-tui"
     "profile-boot-web"
     "profile-boot-web-nobase"
-    "profile-codex"
+    "profile-nix-plugin"
     "profile-official-on-demand"
     "profile-official-plugin"
     "profile-regression"
-    "profile-spec-lock"
     "profile-template"
     "profile-template-extension"
     "profile-templates"
     "profile-tui"
-    "profile-tui-spec"
     "profile-user-npm"
   ];
 

@@ -84,7 +84,6 @@ let
     userPatches = [
       { insert = [{ id = "inline-shadowed-row"; name = "@test/shadowed"; }]; }
     ];
-    specsHash = "";
   };
 
   inline = profilesLib.mkProfile {
@@ -97,7 +96,6 @@ let
     userPatches = [
       { insert = [{ id = "test-inline-row"; name = "@test/inline-row"; }]; }
     ];
-    specsHash = "";
   };
 
   # Narrow explicit-patchPath case: plain manifest has no bundle.patch, but
@@ -110,7 +108,6 @@ let
     ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
   };
 
   # External selections sharing the package file's basename (cordis.patch.yml).
@@ -135,7 +132,6 @@ let
     ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
   };
 
   externalColliding = profilesLib.mkProfile {
@@ -146,7 +142,6 @@ let
     ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
   };
 
   orderedArtifact = profilesLib.buildProfile { inherit pkgs; profile = ordered; };
@@ -181,7 +176,6 @@ let
     plugins = [ bundleDrv bundleDrv ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
   };
   duplicateArtifact = profilesLib.buildProfile { inherit pkgs; profile = duplicateProfile; };
 in

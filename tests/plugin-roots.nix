@@ -59,7 +59,6 @@ let
     inBoxNames = [ ];
     userPatchesFile = null;
     userPatches = [ ];
-    specsHash = "";
   };
   build = profile: profilesLib.buildProfile { inherit pkgs profile; };
 
