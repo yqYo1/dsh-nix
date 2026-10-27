@@ -19,7 +19,7 @@
 #   C. builder (pinned FOD hashes; realized when the check builds):
 #      real FOD + profile outputs for the synthetic
 #      ordered fixtures and tui-spec — ordered direct names, exact
-#      layers, no transitive/auto-peer leakage at the profile top, lock
+#      bundles, no transitive/auto-peer leakage at the profile top, lock
 #      bytes retained, stable contextual specs, no enclosing-source path
 #      leakage, and REAL transitive imports (not symlink shape).
 #
@@ -47,9 +47,9 @@ let
 
   zzzSpec = "file:" + toString ./fixtures/synth-zzz-branch;
   aaaSpec = "file:" + toString ./fixtures/synth-aaa-leaf;
-  nixSibling = pluginsLib.mkPluginBundle { path = ./fixtures/synth-nix-sibling; };
+  nixSibling = pluginsLib.mkBundle { path = ./fixtures/synth-nix-sibling; };
 
-  orderedProfile = profilesLib.mkProfileBundle {
+  orderedProfile = profilesLib.mkProfile {
     name = "spec-lock-ordered";
     inherit inBoxNames;
     plugins = [
@@ -60,10 +60,10 @@ let
     specsLock = synthLock;
     specsHash = synthHash;
   };
-  orderedArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = orderedProfile; };
+  orderedArtifact = profilesLib.buildProfile { inherit pkgs; profile = orderedProfile; };
 
   tuiSpecProfile = import ../examples/profiles/tui-spec.nix { inherit profilesLib inBoxNames; };
-  tuiSpecArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = tuiSpecProfile; };
+  tuiSpecArtifact = profilesLib.buildProfile { inherit pkgs; profile = tuiSpecProfile; };
 
   # Negative collision case (expected FAILURE, NOT wired into `check`):
   # the SAME two spec declarations [zzzSpec, aaaSpec] and the SAME
@@ -87,19 +87,19 @@ let
     }
     EOF
   '';
-  collisionProfile = profilesLib.mkProfileBundle {
+  collisionProfile = profilesLib.mkProfile {
     name = "spec-lock-collision";
     inherit inBoxNames;
     plugins = [
       zzzSpec
       nixSibling
       aaaSpec
-      (pluginsLib.mkPluginBundle { path = collidingDrv; })
+      (pluginsLib.mkBundle { path = collidingDrv; })
     ];
     specsLock = synthLock;
     specsHash = synthHash;
   };
-  collisionArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = collisionProfile; };
+  collisionArtifact = profilesLib.buildProfile { inherit pkgs; profile = collisionProfile; };
 
   # Rendered-caller probe: the SAME fetchSpecs instantiation the ordered
   # profile builds (same spec set, lock, and hash), evaluated here. Its
@@ -126,7 +126,7 @@ assert collisionProfile.specsHash == orderedProfile.specsHash;
 assert orderedProfile.specsLock != null;
 # NOTE: project `.specsLock`: the fail-closed throw lives in a lazy let
 # binding, and tryEval alone only forces weak head normal form.
-assert !(builtins.tryEval (profilesLib.mkProfileBundle {
+assert !(builtins.tryEval (profilesLib.mkProfile {
   name = "spec-lock-nolock";
   inherit inBoxNames;
   plugins = [ "@deepseek-ai/dsh-base" ];
@@ -285,7 +285,7 @@ assert lib.hasInfix "must not contain devDependencies" probeFetcher.buildCommand
       actual_bundles=$(${pkgs.jq}/bin/jq -c '.dsh.profile.bundles' "$ordered/package.json")
       [ "$actual_bundles" = '["@dsh-synth/zzz-branch","@dsh-synth/nix-sibling","@dsh-synth/aaa-leaf"]' ] \
         || fail "ordered bundles: got $actual_bundles"
-      pass "ordered layers follow declaration order (reversed vs lock)"
+      pass "ordered bundles follow declaration order (reversed vs lock)"
       scope_list=$(ls "$ordered/node_modules/@dsh-synth")
       [ "$scope_list" = "aaa-leaf
       nix-sibling
@@ -295,8 +295,8 @@ assert lib.hasInfix "must not contain devDependencies" probeFetcher.buildCommand
       test ! -e "$ordered/node_modules/is-odd" || fail "transitive dep leaked to profile top"
       test ! -e "$ordered/node_modules/is-number" || fail "transitive dep leaked to profile top"
       jq -e '.dsh.profile.bundles | index("is-odd") | not' "$ordered/package.json" > /dev/null \
-        || fail "transitive dep became a layer"
-      pass "only exact direct entries projected; no transitive/auto-peer layers"
+        || fail "transitive dep became a profile bundle"
+      pass "only exact direct entries projected; no transitive/auto-peer bundles"
       fod=$(dirname $(dirname $(dirname $(readlink "$ordered/node_modules/@dsh-synth/zzz-branch"))))
       ${pkgs.jq}/bin/jq -e '. == [{"spec":"file:/build/spec-inputs/0","packageName":"@dsh-synth/zzz-branch"},{"spec":"file:/build/spec-inputs/1","packageName":"@dsh-synth/aaa-leaf"}]' \
         "$fod/direct-specs.json" > /dev/null \

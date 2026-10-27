@@ -32,7 +32,7 @@ let
 
   userPkg = import ./fixtures/user-npm-plugin.nix { inherit pkgs; };
 
-  profile = profilesLib.mkProfileBundle {
+  profile = profilesLib.mkProfile {
     name = "user-npm";
     plugins = [ userPkg ];
     userPatchesFile = null;
@@ -40,16 +40,16 @@ let
     specsHash = "";
   };
 
-  artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+  artifact = profilesLib.buildProfile { inherit pkgs profile; };
 
   missingDrv = pkgs.runCommand "dsh-user-npm-negative-missing" { } ''
     mkdir -p "$out"
     printf 'no package.json anywhere in this output\n' > "$out/README.txt"
   '';
 
-  negativeMissingArtifact = profilesLib.buildProfileBundle {
+  negativeMissingArtifact = profilesLib.buildProfile {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle {
+    profile = profilesLib.mkProfile {
       name = "user-npm-negative-missing";
       plugins = [ missingDrv ];
       userPatchesFile = null;
@@ -58,9 +58,9 @@ let
     };
   };
 
-  negativeCollisionArtifact = profilesLib.buildProfileBundle {
+  negativeCollisionArtifact = profilesLib.buildProfile {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle {
+    profile = profilesLib.mkProfile {
       name = "user-npm-negative-collision";
       plugins = [ userPkg userPkg ];
       userPatchesFile = null;
@@ -87,11 +87,11 @@ let
       grep -q '^PLUGIN-ROOTS-OK$' ${(import ./plugin-roots.nix { inherit pkgs; })}/passed
       pass "production root/patch policy checks passed"
 
-      # --- raw-derivation runtime shape: name / layer / order / direct-only ---
+      # --- raw-derivation runtime shape: name / bundle / order / direct-only ---
       jq -e '.dsh.profile.bundles == ["@dsh-poc/user-npm-plugin"]' \
         ${artifact}/package.json > /dev/null \
-        || fail "bundles is not exactly the manifest-declared layer"
-      pass "layer order is exactly the manifest name"
+        || fail "bundles is not exactly the manifest-declared bundle"
+      pass "bundle order is exactly the manifest name"
       jq --arg want "${userPkg}/lib/node_modules/@dsh-poc/user-npm-plugin" \
         -e '.dependencies."@dsh-poc/user-npm-plugin" == $want' \
         ${artifact}/package.json > /dev/null \

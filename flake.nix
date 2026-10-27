@@ -1,14 +1,14 @@
-# Nix-native DSH profile packager.
+# Nix-native DSH profile builder.
 #
-# A PLUGIN bundle is a plain (often non-flake) package directory: it carries
-# its own package.json (with `dsh.bundle.patch`) and cordis.patch.yml.  We
-# import it verbatim — we never transcribe its rows.
-# A PROFILE bundle is the artifact we build: an immutable DSH profile
-# directory (package.json manifest + node_modules view) that `dsh --profile`
-# consumes.  Cordis stays DSH's runtime; this flake does not reimplement it.
+# A BUNDLE is a plain (often non-flake) package directory: it carries its own
+# package.json (with `dsh.bundle.patch`) and cordis.patch.yml.  We import it
+# verbatim — we never transcribe its rows.
+# A PROFILE is the artifact we build: an immutable DSH profile directory
+# (package.json manifest + node_modules view) that `dsh --profile` consumes.
+# Cordis stays DSH's runtime; this flake does not reimplement it.
 #
 #   nix flake check                         assertions + profile artifact shape
-#   nix eval .#profiles.tui --json          the declared profile (ordered layers)
+#   nix eval .#profiles.tui --json          the declared profile (ordered bundles)
 #   nix build .#packages.x86_64-linux.tui   the immutable profile directory
 #   ./scripts/profile-smoke.sh              boot it with the packaged dsh CLI
 #
@@ -16,7 +16,7 @@
 # bundles (non-flake repo input) with zero transcription; wire it in when a
 # dsh checkout is visible to the flake.
 {
-  description = "Nix-native DSH profile packager";
+  description = "Nix-native DSH profile builder";
 
   nixConfig = {
     extra-substituters = [
@@ -62,10 +62,41 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
+      # The official on-demand bundles are not installation dependencies, but
+      # the pinned dsh source still contains and builds them.  Profile builds
+      # link the installed package directly.
+      onDemandBundles = [
+        "@deepseek-ai/dsh-subagent-codex"
+        "@deepseek-ai/dsh-subagent-claude-code"
+      ];
+      # The official bundles shipped by the dsh installation: every package
+      # under `packages/bundle/` and `packages/experimental/` that declares
+      # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
+      # users reference them bare, with nothing to package.  Mirrors upstream
+      # `PROFILE_TEMPLATES` bundles plus `OPTIONAL_BUNDLES` (shipped switched
+      # off, offered by the plugin manager).  The
+      # `official-bundles` check fails on drift with the pinned dsh source.
       inBoxNames = [
+        # Bundles of the shipped profile templates (`PROFILE_TEMPLATES`).
         "@deepseek-ai/dsh-base"
         "@deepseek-ai/dsh-web-app"
         "@deepseek-ai/dsh-headless"
+        "@deepseek-ai/dsh-sdk-app"
+        "@deepseek-ai/dsh-sdk-minimal"
+        "@deepseek-ai/dsh-acp-app"
+        # Opt-in bundles (upstream OPTIONAL_BUNDLES).
+        "@deepseek-ai/dsh-experimental-session-search"
+        "@deepseek-ai/dsh-experimental-ralph-bundle"
+        "@deepseek-ai/dsh-experimental-terminal-bundle"
+        "@deepseek-ai/dsh-experimental-badge-skill-bundle"
+        "@deepseek-ai/dsh-experimental-session-titles-bundle"
+        "@deepseek-ai/dsh-experimental-agent-team-profile"
+        "@deepseek-ai/dsh-experimental-voice-input-bundle"
+        "@deepseek-ai/dsh-experimental-cot-translation-bundle"
+        "@deepseek-ai/dsh-experimental-auto-review"
+        "@deepseek-ai/dsh-experimental-inspector-profile"
+        "@deepseek-ai/dsh-experimental-plugin-market-bundle"
+        "@deepseek-ai/dsh-experimental-tool-worktree"
       ];
       tui = import ./examples/profiles/tui.nix {
         inherit plugins profilesLib inBoxNames;
@@ -91,7 +122,7 @@
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
-        inherit profilesLib inBoxNames;
+        inherit profilesLib inBoxNames onDemandBundles;
         dshSrc = dsh;
         inherit fetchPnpmDepsFor;
       };
@@ -139,22 +170,22 @@
           default = dshPackage;
           dsh = dshPackage;
 
-          tui = profilesLib.buildProfileBundle {
+          tui = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.tui;
           };
 
-          tui-spec = profilesLib.buildProfileBundle {
+          tui-spec = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.tui-spec;
           };
 
-          web = profilesLib.buildProfileBundle {
+          web = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.web;
           };
 
-          headless = profilesLib.buildProfileBundle {
+          headless = profilesLib.buildProfile {
             inherit pkgs;
             profile = profiles.headless;
           };
@@ -167,7 +198,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
           tuiArtifact = self.packages.${system}.tui;
           tuiSpecArtifact = self.packages.${system}.tui-spec;
-          expectedLayers = builtins.toJSON [ "@dsh-nix/tui-core" ];
+          expectedBundles = builtins.toJSON [ "@dsh-nix/tui-core" ];
         in
         {
           profile-tui =
@@ -177,9 +208,9 @@
               }
               ''
                 package_json=${tuiArtifact}/package.json
-                actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
-                expected_layers=${lib.escapeShellArg expectedLayers}
-                test "$actual_layers" = "$expected_layers"
+                actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
+                expected_bundles=${lib.escapeShellArg expectedBundles}
+                test "$actual_bundles" = "$expected_bundles"
 
                 test -L ${tuiArtifact}/node_modules/@dsh-nix/tui-core
 
@@ -193,9 +224,9 @@
               }
               ''
                 package_json=${tuiSpecArtifact}/package.json
-                actual_layers=$(jq -c '.dsh.profile.bundles' "$package_json")
-                expected_layers=${lib.escapeShellArg expectedLayers}
-                test "$actual_layers" = "$expected_layers"
+                actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
+                expected_bundles=${lib.escapeShellArg expectedBundles}
+                test "$actual_bundles" = "$expected_bundles"
                 test -L ${tuiSpecArtifact}/node_modules/@dsh-nix/tui-core
                 # New contract: exact-direct projection. The scope parent
                 # is a real directory holding a single package link; the
@@ -204,6 +235,143 @@
                 test -d ${tuiSpecArtifact}/node_modules/@dsh-nix
                 test ! -L ${tuiSpecArtifact}/node_modules/@dsh-nix
 
+                touch "$out"
+              '';
+
+          # Official-bundle drift guard: the accepted by-name set must equal
+          # every bundle the installation ships.  The rule mirrors the
+          # plugin-manager's own `shipped` computation: a package is an
+          # installation-provided bundle iff its name is a key of the
+          # installation package.json `dependencies` and its manifest
+          # declares `dsh.bundle.patch`.  The on-demand subagent bundles are
+          # not installation dependencies (catalog-only), so the rule
+          # excludes them without a path allowlist and cannot miss a bundle
+          # placed anywhere else in the tree.
+          official-bundles =
+            pkgs.runCommand "dsh-official-bundles-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                expected = builtins.toJSON inBoxNames;
+              }
+              ''
+                cliDeps=$(jq -r '.dependencies // {} | keys[]' "$src/apps/cli/package.json")
+                actual=$(
+                  cd "$src"
+                  find . -name node_modules -prune -o -name package.json -print | while IFS= read -r p; do
+                    name=$(jq -r '.name // empty' "$p" 2>/dev/null) || continue
+                    [ -n "$name" ] || continue
+                    if printf '%s\n' "$cliDeps" | grep -qxF "$name" \
+                      && jq -e '((.dsh // {}).bundle // {}).patch != null' "$p" >/dev/null 2>&1; then
+                      printf '%s\n' "$name"
+                    fi
+                  done | sort
+                )
+                want=$(printf '%s\n' "$expected" | jq -r '.[]' | sort)
+                if [ "$actual" != "$want" ]; then
+                  echo "official-bundles: by-name set drifted from the installation's shipped bundles" >&2
+                  diff <(printf '%s\n' "$want") <(printf '%s\n' "$actual") >&2 || true
+                  echo "(left: accepted list, right: shipped bundles)" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Official on-demand pins must track the pinned dsh tag: the pinned
+          # names equal the upstream ON_DEMAND_BUNDLES list, every pin version
+          # equals the source version, and no pin ships discovery placeholders.
+          # A tag bump that forgets lib/official-bundles.nix fails loud here.
+          official-on-demand =
+            pkgs.runCommand "dsh-official-on-demand-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                install = self.packages.${system}.dsh;
+                names = builtins.toJSON onDemandBundles;
+              }
+              ''
+                upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/boot/app-boot/src/official-bundle-packages.ts" \
+                  | grep -oE "'@deepseek-ai/[^']+'" | tr -d "'" | sort)
+                want=$(printf '%s\n' "$names" | jq -r '.[]' | sort)
+                if [ "$upstream" != "$want" ]; then
+                  echo "official-on-demand: names differ from upstream ON_DEMAND_BUNDLES" >&2
+                  diff <(printf '%s\n' "$want") <(printf '%s\n' "$upstream") >&2 || true
+                  exit 1
+                fi
+                for name in $want; do
+                  matches=$(find "$install" -path '*/node_modules' -prune -o -name package.json -print \
+                    | while IFS= read -r manifest; do
+                        if [ "$(jq -r '.name // empty' "$manifest")" = "$name" ]; then
+                          printf '%s\n' "$manifest"
+                        fi
+                      done)
+                  count=$(printf '%s\n' "$matches" | grep -c . || true)
+                  if [ "$count" -ne 1 ]; then
+                    echo "official-on-demand: expected one built source package for $name, found $count" >&2
+                    exit 1
+                  fi
+                  jq -e '((.dsh // {}).bundle // {}).patch != null' "$matches" >/dev/null \
+                    || { echo "official-on-demand: $name declares no dsh.bundle.patch" >&2; exit 1; }
+                  main=$(jq -r '.main // empty' "$matches")
+                  [ -n "$main" ] && [ -f "$(dirname "$matches")/$main" ] \
+                    || { echo "official-on-demand: $name is not built (missing $main)" >&2; exit 1; }
+                done
+                echo "on-demand bundles: $(printf '%s\n' "$want" | wc -l)"
+                touch "$out"
+              '';
+
+          # Every plugin package named by a shipped bundle's rows must exist in
+          # the built installation: that is what lets a profile row (or the
+          # bundle itself) resolve the name without Nix packaging.  Guards the
+          # "names resolve from the installation" promise across tag bumps.
+          official-plugin-resolution =
+            pkgs.runCommand "dsh-official-plugin-resolution-check"
+              {
+                nativeBuildInputs = [ pkgs.jq ];
+                src = dsh;
+                install = self.packages.${system}.dsh;
+                shipped = builtins.toJSON inBoxNames;
+              }
+              ''
+                printf '%s\n' "$shipped" | jq -r '.[]' | sort > "$TMPDIR/shipped.txt"
+                cd "$src"
+                find . -name node_modules -prune -o -name package.json -print > "$TMPDIR/pkgs.txt"
+                : > "$TMPDIR/names.txt"
+                : > "$TMPDIR/problems.txt"
+                while IFS= read -r p; do
+                  name=$(jq -r '.name // empty' "$p" 2>/dev/null) || continue
+                  [ -n "$name" ] || continue
+                  grep -qxF "$name" "$TMPDIR/shipped.txt" || continue
+                  jq -r '[((.dsh // {}).bundle // {}).patch // empty] | flatten | .[]' "$p" > "$TMPDIR/patches.txt" 2>/dev/null || true
+                  while IFS= read -r rel; do
+                    [ -n "$rel" ] || continue
+                    f="$(dirname "$p")/$rel"
+                    if [ ! -f "$f" ]; then
+                      echo "$name: declared patch $rel does not exist" >> "$TMPDIR/problems.txt"
+                      continue
+                    fi
+                    grep -oE "name:[[:space:]]*['\"]?@deepseek-ai/[A-Za-z0-9._/-]+" "$f" \
+                      | sed -E "s/^name:[[:space:]]*['\"]?//" >> "$TMPDIR/names.txt" || true
+                  done < "$TMPDIR/patches.txt"
+                done < "$TMPDIR/pkgs.txt"
+                if [ -s "$TMPDIR/problems.txt" ]; then
+                  echo "official-plugin-resolution: shipped bundle patch declarations are broken" >&2
+                  cat "$TMPDIR/problems.txt" >&2
+                  exit 1
+                fi
+                sed -E 's#^(@deepseek-ai/[^/]+)/.*#\1#' "$TMPDIR/names.txt" | sort -u > "$TMPDIR/want.txt"
+                # -L follows the pnpm symlink farm; the depth bound stops the
+                # traversal before parent/child workspace links recurse, and
+                # still reaches every node_modules view (root, .pnpm, package).
+                find -L "$install" -maxdepth 8 -path '*/node_modules/@deepseek-ai/*/package.json' -print 2>/dev/null \
+                  | sed -E 's#.*/node_modules/(@deepseek-ai/[^/]+)/package.json#\1#' | sort -u > "$TMPDIR/have.txt" || true
+                missing=$(comm -23 "$TMPDIR/want.txt" "$TMPDIR/have.txt")
+                if [ -n "$missing" ]; then
+                  echo "official-plugin-resolution: packages named by shipped bundle rows are absent from the installation:" >&2
+                  printf '%s\n' "$missing" >&2
+                  exit 1
+                fi
+                echo "resolved $(wc -l < "$TMPDIR/want.txt") official plugin packages from the installation"
                 touch "$out"
               '';
 
@@ -232,7 +400,7 @@
               profile = import ./tests/fixtures/codex-profile.nix {
                 inherit profilesLib inBoxNames;
               };
-              artifact = profilesLib.buildProfileBundle { inherit pkgs profile; };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
             in
             pkgs.runCommand "dsh-profile-codex-check"
               {
@@ -507,6 +675,156 @@
                   exit 1
                 fi
                 grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                touch "$out"
+              '';
+
+          # Optional official bundles need no packaging: base + web-app plus two
+          # experimental bundles (session-search, the worktree tool) must boot
+          # exactly like the plain web profile.
+          profile-boot-experimental =
+            let
+              profile = profilesLib.mkProfile {
+                name = "experimental";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                  "@deepseek-ai/dsh-experimental-session-search"
+                  "@deepseek-ai/dsh-experimental-tool-worktree"
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-boot-experimental-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/experimental"
+                chmod -R u+w "$home/profiles/experimental"
+                # Composition is exact: all four declared bundles, order kept.
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-experimental-session-search", "@deepseek-ai/dsh-experimental-tool-worktree"]' \
+                  "$home/profiles/experimental/package.json" >/dev/null
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} experimental "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                # A dropped optional bundle would still let the boot pass; assert
+                # the launcher reported no skipped bundle.
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # An official cordis plugin package that ships without a bundle of
+          # its own mounts without packaging: a patch row in the profile's own
+          # layer names the package and the name resolves from the built
+          # installation (no bundle, no extra Nix packaging).  base + web-app +
+          # one official tool plugin (str-replace-editor, no dsh.bundle) must
+          # compose the row and boot CHECK-OK.
+          profile-official-plugin =
+            let
+              profile = profilesLib.mkProfile {
+                name = "official-plugin";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                ];
+                userPatches = [
+                  {
+                    insert = [
+                      {
+                        id = "str-replace-editor";
+                        name = "@deepseek-ai/dsh-tool-str-replace-editor";
+                      }
+                    ];
+                  }
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; };
+            in
+            pkgs.runCommand "dsh-profile-official-plugin-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/official-plugin"
+                chmod -R u+w "$home/profiles/official-plugin"
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]' \
+                  "$home/profiles/official-plugin/package.json" >/dev/null
+                grep -q 'str-replace-editor' "$home/profiles/official-plugin/cordis.patch.yml"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} official-plugin "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Official ON-DEMAND bundles by name: dsh-subagent-codex and
+          # dsh-subagent-claude-code are not in the installation, so dsh-nix
+          # builds them from their pinned npm releases (official/ pins).  The
+          # profile links them like Nix-package plugins and boots with no
+          # skipped bundle.
+          profile-official-on-demand =
+            let
+              profile = profilesLib.mkProfile {
+                name = "official-on-demand";
+                plugins = [
+                  "@deepseek-ai/dsh-base"
+                  "@deepseek-ai/dsh-web-app"
+                ] ++ onDemandBundles;
+                inherit inBoxNames;
+                installBundles = onDemandBundles;
+              };
+              artifact = profilesLib.buildProfile { inherit pkgs profile; install = self.packages.${system}.dsh; };
+            in
+            pkgs.runCommand "dsh-profile-official-on-demand-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/official-on-demand"
+                chmod -R u+w "$home/profiles/official-on-demand"
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-subagent-codex", "@deepseek-ai/dsh-subagent-claude-code"]' \
+                  "$home/profiles/official-on-demand/package.json" >/dev/null
+                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/package.json"
+                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/package.json"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} official-on-demand "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
 

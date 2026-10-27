@@ -1,7 +1,7 @@
 { lib }:
 
 let
-  mkPluginBundle =
+  mkBundle =
     {
       packageName ? null,
       path,
@@ -12,7 +12,7 @@ let
       packagePath = if builtins.isPath path then builtins.path { inherit path; } else path;
       # Only local directories are inspectable at evaluation time.  A raw
       # derivation (or any non-path package) defers package.json name/patch
-      # resolution to build time, where buildProfileBundle reads package.json
+      # resolution to build time, where buildProfile reads package.json
       # with jq (no IFD).  An explicit patchPath forces layer membership at
       # build time; otherwise the manifest's dsh.bundle.patch declaration
       # decides (plain deps stay inactive).
@@ -25,18 +25,18 @@ let
           if builtins.pathExists manifestPath then
             builtins.fromJSON (builtins.readFile manifestPath)
           else
-            throw "dsh plugin bundle: missing package.json at ${manifestPath}"
+            throw "dsh bundle: missing package.json at ${manifestPath}"
         else
           null;
       resolvedPackageName = if packageName != null then packageName else manifest.name or null;
       # Raw Nix packages (derivations) are not inspectable at evaluation time:
       # reading their package.json would be IFD.  Defer the missing-name
-      # error to buildProfileBundle, which reads package.json at build time.
+      # error to buildProfile, which reads package.json at build time.
       checkedPackageName =
         if resolvedPackageName == null || resolvedPackageName == "" then
           if manifest == null then null
           else
-            throw "dsh plugin bundle: packageName is required (set it explicitly or provide package.json name)"
+            throw "dsh bundle: packageName is required (set it explicitly or provide package.json name)"
         else
           resolvedPackageName;
       declaredPatch =
@@ -64,6 +64,8 @@ let
   classifyPlugin =
     {
       inBoxNames ? [ ],
+      installBundles ? [ ],
+      officialBundles ? { },
       plugin,
     }:
     if builtins.isString plugin then
@@ -71,6 +73,19 @@ let
         {
           kind = "in-box";
           name = plugin;
+        }
+      else if builtins.elem plugin installBundles then
+        {
+          kind = "install-bundle";
+          name = plugin;
+        }
+      else if officialBundles ? ${plugin} then
+        {
+          kind = "nix";
+          plugin = mkBundle {
+            path = officialBundles.${plugin};
+            packageName = plugin;
+          };
         }
       else
         {
@@ -85,7 +100,7 @@ let
     else
       {
         kind = "nix";
-        plugin = mkPluginBundle { path = plugin; };
+        plugin = mkBundle { path = plugin; };
       };
 
   fetchSpecs =
@@ -310,7 +325,6 @@ let
     };
 in
 {
-  inherit mkPluginBundle;
-  mkPlugin = mkPluginBundle;
+  inherit mkBundle;
   inherit classifyPlugin fetchSpecs;
 }

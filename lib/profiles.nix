@@ -4,41 +4,43 @@ let
   pluginsLib = import ./plugins.nix { inherit lib; };
   inherit (pluginsLib) classifyPlugin fetchSpecs;
 
-  mkProfileBundle =
+  mkProfile =
     {
       name,
       plugins,
       inBoxNames ? [ ],
+      installBundles ? [ ],
+      officialBundles ? { },
       userPatchesFile ? null,
       userPatches ? [ ],
       specsHash ? "",
       specsLock ? null,
     }:
     let
-      classified = map (plugin: classifyPlugin { inherit inBoxNames plugin; }) plugins;
-      nixPlugins = map (entry: entry.plugin)
+      classified = map (plugin: classifyPlugin { inherit inBoxNames installBundles officialBundles plugin; }) plugins;
+      nixEntries = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
-      packageNames = map (plugin: plugin.packageName) nixPlugins;
+      packageNames = map (plugin: plugin.packageName) nixEntries;
       # Deferred (null) names from raw derivations resolve at build time from
       # package.json; they must not collide with each other here.  Check only
-      # the eval-known names now; buildProfileBundle enforces runtime
+      # the eval-known names now; buildProfile enforces runtime
       # uniqueness after resolution.
       knownPackageNames = builtins.filter (n: n != null && n != "") packageNames;
       checkedName =
         if name == null || name == "" then
-          throw "dsh profile bundle: name must not be empty"
+          throw "dsh profile: name must not be empty"
         else
           name;
       uniquePackageNames =
         if builtins.length knownPackageNames == builtins.length (lib.unique knownPackageNames) then
           true
         else
-          throw "dsh profile bundle: plugin packageNames must be unique";
+          throw "dsh profile: plugin packageNames must be unique";
       specs = map (entry: entry.spec)
         (builtins.filter (entry: entry.kind == "spec") classified);
       checkedSpecsLock =
         if specsLock != null && specs == [ ] then
-          throw "dsh profile bundle ${checkedName}: specsLock given but no spec plugins declared"
+          throw "dsh profile ${checkedName}: specsLock given but no spec plugins declared"
         else
           specsLock;
     in
@@ -49,13 +51,18 @@ let
       plugins = classified;
       inBox = map (entry: entry.name)
         (builtins.filter (entry: entry.kind == "in-box") classified);
-      inherit nixPlugins;
+      installBundles = map (entry: entry.name)
+        (builtins.filter (entry: entry.kind == "install-bundle") classified);
+      inherit nixEntries;
       inherit specs;
     };
 
-  buildProfileBundle =
-    { pkgs, profile }:
+  buildProfile =
+    { pkgs, profile, install ? null }:
     let
+      installBundleNames = profile.installBundles or [ ];
+      needsInstall = installBundleNames != [ ];
+      installArg = if !needsInstall || install == null then "" else toString install;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;
       specEntries = builtins.filter (entry: entry.kind == "spec") classified;
@@ -83,7 +90,8 @@ let
         inherit nixMetadata;
         specCount = builtins.length specEntries;
         classes = map (entry:
-          if entry.kind == "in-box" then { kind = entry.kind; name = entry.name; }
+          if entry.kind == "in-box" || entry.kind == "install-bundle" then
+            { kind = entry.kind; name = entry.name; }
           else if entry.kind == "spec" then { kind = entry.kind; }
           else {
             kind = entry.kind;
@@ -109,15 +117,16 @@ let
     } ''
       mkdir -p "$out/node_modules"
       metadata=${lib.escapeShellArg (toString metadata)}
+      install=${lib.escapeShellArg installArg}
       specRoot=${lib.escapeShellArg specRootArg}
 
-      layers='[]'
+      bundles='[]'
       specIndex=0
       if [ -n "$specRoot" ]; then
         directCount=$(jq 'length' "$specRoot/direct-specs.json")
         wantCount=$(jq -r '.specCount' "$metadata")
         if [ "$directCount" != "$wantCount" ]; then
-          echo "dsh profile bundle: direct-specs.json has $directCount entries, want $wantCount" >&2
+          echo "dsh profile: direct-specs.json has $directCount entries, want $wantCount" >&2
           exit 1
         fi
       fi
@@ -158,9 +167,9 @@ let
           return 0
         fi
         if [ "$count" -eq 0 ]; then
-          echo "dsh profile bundle: no package.json at $pkg/package.json and no installed package under $pkg/lib/node_modules (want exactly one direct root)" >&2
+          echo "dsh profile: no package.json at $pkg/package.json and no installed package under $pkg/lib/node_modules (want exactly one direct root)" >&2
         else
-          echo "dsh profile bundle: ambiguous installed packages under $pkg/lib/node_modules (found $count:$listed); pass an explicit installed root path" >&2
+          echo "dsh profile: ambiguous installed packages under $pkg/lib/node_modules (found $count:$listed); pass an explicit installed root path" >&2
         fi
         return 1
       }
@@ -173,11 +182,28 @@ let
         else
           resolved=$(jq -r '.name // empty' "$2/package.json")
           if [ -z "$resolved" ]; then
-            echo "dsh profile bundle: packageName is required (set it explicitly or provide package.json name) for $2" >&2
+            echo "dsh profile: packageName is required (set it explicitly or provide package.json name) for $2" >&2
             return 1
           fi
           printf '%s' "$resolved"
         fi
+      }
+      # Find the one installed package named $1 (source tree, no node_modules).
+      resolve_install_bundle() {
+        want=$1
+        count=0
+        chosen=""
+        while IFS= read -r manifest; do
+          [ -f "$manifest" ] || continue
+          [ "$(jq -r '.name // empty' "$manifest")" = "$want" ] || continue
+          count=$((count + 1))
+          chosen=$(dirname "$manifest")
+        done < <(find "$install" -path '*/node_modules' -prune -o -name package.json -print)
+        if [ "$count" -ne 1 ]; then
+          echo "dsh profile: expected exactly one installed package named $want, found $count" >&2
+          return 1
+        fi
+        printf '%s' "$chosen"
       }
       # Explicit patchPath forces layer membership; otherwise the package's
       # own dsh.bundle.patch declaration decides (plain deps stay inactive).
@@ -192,14 +218,17 @@ let
         kind=$(printf '%s' "$entry" | jq -r '.kind')
         case "$kind" in
           in-box)
-            layer=$(printf '%s' "$entry" | jq -r '.name')
+            bundle=$(printf '%s' "$entry" | jq -r '.name')
+            ;;
+          install-bundle)
+            bundle=$(printf '%s' "$entry" | jq -r '.name')
             ;;
           spec)
             # Declaration order comes from direct-specs.json (validated
             # against the installer importer), never from package.json key
             # order: pnpm insertion order is not the declaration order and
-            # auto-installed peers must never become layers.
-            layer=$(jq -r --argjson i "$specIndex" '.[$i].packageName' "$specRoot/direct-specs.json")
+            # auto-installed peers must never become profile bundles.
+            bundle=$(jq -r --argjson i "$specIndex" '.[$i].packageName' "$specRoot/direct-specs.json")
             specIndex=$((specIndex + 1))
             ;;
           nix)
@@ -207,14 +236,14 @@ let
             effectiveRoot=$(resolve_effective_root "$packagePath") || exit 1
             packageName=$(resolve_nix_name "$entry" "$effectiveRoot") || exit 1
             if is_nix_layer "$entry" "$effectiveRoot"; then
-              layer=$packageName
+              bundle=$packageName
             else
-              layer=""
+              bundle=""
             fi
             ;;
         esac
-        if [ -n "$layer" ]; then
-          layers=$(printf '%s' "$layers" | jq -c --arg layer "$layer" '. + [$layer]')
+        if [ -n "$bundle" ]; then
+          bundles=$(printf '%s' "$bundles" | jq -c --arg bundle "$bundle" '. + [$bundle]')
         fi
       done < <(jq -c '.classes[]' "$metadata")
 
@@ -225,7 +254,7 @@ let
         effectiveRoot=$(resolve_effective_root "$packagePath") || exit 1
         packageName=$(resolve_nix_name "$entry" "$effectiveRoot") || exit 1
         case "$seen_nix_names" in
-          *" $packageName "*) echo "dsh profile bundle: plugin packageNames must be unique (duplicate $packageName)" >&2; exit 1 ;;
+          *" $packageName "*) echo "dsh profile: plugin packageNames must be unique (duplicate $packageName)" >&2; exit 1 ;;
         esac
         seen_nix_names="$seen_nix_names$packageName "
         dependencies=$(printf '%s' "$dependencies" | jq -c --arg name "$packageName" --arg path "$effectiveRoot" '. + {($name): $path}')
@@ -242,16 +271,16 @@ let
           # project the package under node_modules with a manifest that
           # declares exactly the selected patch and the real patch bytes
           # beside it. A missing/escaping selection fails loud instead of a
-          # phantom layer rc.2 would skip.
+          # phantom bundle rc.2 would skip.
           case "$explicitPatch" in
             /*)
               if [ ! -f "$explicitPatch" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName does not exist" >&2
+                echo "dsh profile: explicit patchPath $explicitPatch for $packageName does not exist" >&2
                 exit 1
               fi
               patchBase=$(basename "$explicitPatch")
               if [ "$patchBase" = "package.json" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName must not be package.json" >&2
+                echo "dsh profile: explicit patchPath $explicitPatch for $packageName must not be package.json" >&2
                 exit 1
               fi
               mkdir -p "$dest"
@@ -272,12 +301,12 @@ let
             *)
               case "$explicitPatch" in
                 *".."* )
-                  echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName must stay inside the package" >&2
+                  echo "dsh profile: explicit patchPath $explicitPatch for $packageName must stay inside the package" >&2
                   exit 1
                   ;;
               esac
               if [ ! -f "$effectiveRoot/$explicitPatch" ]; then
-                echo "dsh profile bundle: explicit patchPath $explicitPatch for $packageName not found in $effectiveRoot" >&2
+                echo "dsh profile: explicit patchPath $explicitPatch for $packageName not found in $effectiveRoot" >&2
                 exit 1
               fi
               mkdir -p "$dest"
@@ -292,6 +321,23 @@ let
         fi
       done < <(jq -c '.nixMetadata[]' "$metadata")
 
+      while IFS= read -r entry; do
+        name=$(printf '%s' "$entry" | jq -r '.name')
+        if [ -z "$install" ]; then
+          echo "dsh profile: bundle $name requires the dsh installation" >&2
+          exit 1
+        fi
+        dir=$(resolve_install_bundle "$name") || exit 1
+        jq -e '((.dsh // {}).bundle // {}).patch != null' "$dir/package.json" >/dev/null \
+          || { echo "dsh profile: $name in the installation is not a bundle" >&2; exit 1; }
+        main=$(jq -r '.main // empty' "$dir/package.json")
+        [ -n "$main" ] && [ -f "$dir/$main" ] \
+          || { echo "dsh profile: $name is not built in the installation (missing $main)" >&2; exit 1; }
+        parent=$(dirname "$name")
+        if [ "$parent" != . ]; then mkdir -p "$out/node_modules/$parent"; fi
+        ln -s "$dir" "$out/node_modules/$name"
+      done < <(jq -c '.classes[] | select(.kind == "install-bundle")' "$metadata")
+
       if [ -n "$specRoot" ]; then
         # Project ONLY the ordered direct specs, one package at a time.
         # The fetcher closure keeps the full .pnpm graph; each top-level
@@ -301,12 +347,12 @@ let
         # Auto-installed peers stay in the closure, never in the profile.
         while IFS= read -r packageName; do
           case "$seen_nix_names" in
-            *" $packageName "*) echo "dsh profile bundle: duplicate plugin packageName $packageName (spec vs nix)" >&2; exit 1 ;;
+            *" $packageName "*) echo "dsh profile: duplicate plugin packageName $packageName (spec vs nix)" >&2; exit 1 ;;
           esac
           seen_nix_names="$seen_nix_names$packageName "
           src="$specRoot/node_modules/$packageName"
           if [ ! -e "$src" ]; then
-            echo "dsh profile bundle: spec package $packageName missing from spec closure" >&2
+            echo "dsh profile: spec package $packageName missing from spec closure" >&2
             exit 1
           fi
           parent=$(dirname "$packageName")
@@ -315,14 +361,12 @@ let
         done < <(jq -r '.[].packageName' "$specRoot/direct-specs.json")
       fi
 
-      jq -n --arg name ${lib.escapeShellArg profile.name} --argjson layers "$layers" --argjson dependencies "$dependencies" \
-        '{name: $name, version: "0.0.0", private: true, dsh: {profile: {bundles: $layers}}, dependencies: $dependencies}' > "$out/package.json"
+      jq -n --arg name ${lib.escapeShellArg profile.name} --argjson bundles "$bundles" --argjson dependencies "$dependencies" \
+        '{name: $name, version: "0.0.0", private: true, dsh: {profile: {bundles: $bundles}}, dependencies: $dependencies}' > "$out/package.json"
       printf '[]\n' > "$out/cordis.yml"
       ${if patchSource != null then ''cp ${lib.escapeShellArg (toString patchSource)} "$out/cordis.patch.yml"'' else ''printf '%s' ${lib.escapeShellArg patchText} > "$out/cordis.patch.yml"''}
     '';
 in
 {
-  inherit mkProfileBundle buildProfileBundle;
-  mkProfile = mkProfileBundle;
-  buildProfile = buildProfileBundle;
+  inherit mkProfile buildProfile;
 }

@@ -75,7 +75,7 @@ let
   };
 
   # Genuine user-declared buildNpmPackage plugin, passed RAW (no
-  # mkPluginBundle selectors, no installed-root path surgery): the
+  # mkBundle selectors, no installed-root path surgery): the
   # build-time resolver reads the installed root
   # ($out/lib/node_modules/@dsh-poc/user-npm-plugin) and the manifest
   # name (@dsh-poc/user-npm-plugin, never the dsh-poc-npm-user-pkg pname).
@@ -131,9 +131,9 @@ let
 
   # Expected immutable profile artifact, as a store-path STRING only
   # (toString never realises: no build happens in this evaluation).
-  expectedAgentArtifact = toString (profilesLib.buildProfileBundle {
+  expectedAgentArtifact = toString (profilesLib.buildProfile {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle ({
+    profile = profilesLib.mkProfile ({
       name = "agent";
       inherit inBoxNames;
     } // agentDecl);
@@ -142,15 +142,15 @@ let
   # bundle (store-path string only, same as above). The host script asserts
   # the activated stamp lands exactly here, proving the module translated
   # the shared declaration faithfully with the lock intact.
-  expectedCodexArtifact = toString (profilesLib.buildProfileBundle {
+  expectedCodexArtifact = toString (profilesLib.buildProfile {
     inherit pkgs;
     profile = codexBundle;
   });
   # Expected immutable user-npm artifact, built from THE SAME module
   # declaration above (store-path string only, same as above).
-  expectedUserNpmArtifact = toString (profilesLib.buildProfileBundle {
+  expectedUserNpmArtifact = toString (profilesLib.buildProfile {
     inherit pkgs;
-    profile = profilesLib.mkProfileBundle ({
+    profile = profilesLib.mkProfile ({
       name = "user-npm";
       inherit inBoxNames;
     } // userNpmDecl);

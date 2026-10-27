@@ -3,12 +3,12 @@
 # useNativeCompaction=true}).
 #
 # Declaration-only: `nix-instantiate --eval` checks the classification
-# (in-box vs spec, layer order) with no build and no network.  The lock
+# (in-box vs spec, bundle order) with no build and no network.  The lock
 # (tests/fixtures/codex-pnpm-lock.yaml, generated with pnpm 11.27.0) pins
 # the full graph; the runtime FOD hash is discovered by building with
 # specsHash = "" and replacing it with the reported `got: sha256-…` value.
 { profilesLib, inBoxNames }:
-profilesLib.mkProfileBundle {
+profilesLib.mkProfile {
   name = "codex";
   inherit inBoxNames;
   plugins = [
