@@ -64,7 +64,8 @@
       profilesLib = import ./lib/profiles.nix { inherit lib; };
       # The official on-demand bundles are not installation dependencies, but
       # the pinned dsh source still contains and builds them.  Profile builds
-      # link the installed package directly.
+      # link the installed package directly, so no npm fetch, version pin,
+      # lockfile, or pnpm-store hash is maintained separately.
       onDemandBundles = [
         "@deepseek-ai/dsh-subagent-codex"
         "@deepseek-ai/dsh-subagent-claude-code"
@@ -98,6 +99,10 @@
         "@deepseek-ai/dsh-experimental-plugin-market-bundle"
         "@deepseek-ai/dsh-experimental-tool-worktree"
       ];
+      # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
+      # installs one profile per name by default; the bundles come from the
+      # dsh installation at build time, never from user configuration.
+      profileTemplates = [ "acp" "headless" "sdk" "sdk-minimal" "web" ];
       tui = import ./examples/profiles/tui.nix {
         inherit plugins profilesLib inBoxNames;
       };
@@ -122,7 +127,7 @@
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
-        inherit profilesLib inBoxNames onDemandBundles;
+        inherit profilesLib inBoxNames profileTemplates onDemandBundles;
         dshSrc = dsh;
         inherit fetchPnpmDepsFor;
       };
@@ -246,7 +251,8 @@
           # declares `dsh.bundle.patch`.  The on-demand subagent bundles are
           # not installation dependencies (catalog-only), so the rule
           # excludes them without a path allowlist and cannot miss a bundle
-          # placed anywhere else in the tree.
+          # placed anywhere else in the tree; they are covered by the
+          # official-on-demand check and linked at build time.
           official-bundles =
             pkgs.runCommand "dsh-official-bundles-check"
               {
@@ -277,10 +283,10 @@
                 touch "$out"
               '';
 
-          # Official on-demand pins must track the pinned dsh tag: the pinned
-          # names equal the upstream ON_DEMAND_BUNDLES list, every pin version
-          # equals the source version, and no pin ships discovery placeholders.
-          # A tag bump that forgets lib/official-bundles.nix fails loud here.
+          # The on-demand bundle names are the only per-bundle list this
+          # repository keeps; it must equal upstream ON_DEMAND_BUNDLES, and
+          # each name must be a built bundle in the pinned dsh source.  No npm
+          # fetch, version pin, lockfile, or store hash is maintained here.
           official-on-demand =
             pkgs.runCommand "dsh-official-on-demand-check"
               {
@@ -372,6 +378,136 @@
                   exit 1
                 fi
                 echo "resolved $(wc -l < "$TMPDIR/want.txt") official plugin packages from the installation"
+                touch "$out"
+              '';
+
+          # The module installs the shipped profile templates by default; this
+          # guard keeps its name list and every template's bundle list aligned
+          # with the pinned dsh installation.
+          profile-templates =
+            pkgs.runCommand "dsh-profile-templates-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                install = self.packages.${system}.dsh;
+                names = builtins.toJSON profileTemplates;
+                shipped = builtins.toJSON inBoxNames;
+              }
+              ''
+                templates=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
+                  ${./scripts/read-profile-template.mjs} "$install") || exit 1
+                printf '%s\n' "$names" | jq -r '.[]' | sort > "$TMPDIR/want.txt"
+                printf '%s' "$templates" | jq -r 'keys[]' | sort > "$TMPDIR/have.txt"
+                if ! diff -u "$TMPDIR/want.txt" "$TMPDIR/have.txt"; then
+                  echo "profile-templates: module template list differs from PROFILE_TEMPLATES" >&2
+                  exit 1
+                fi
+                printf '%s' "$templates" | jq -r 'to_entries[] | .value.bundles[]' | sort -u > "$TMPDIR/bundles.txt"
+                printf '%s\n' "$shipped" | jq -r '.[]' | sort > "$TMPDIR/shipped.txt"
+                missing=$(comm -23 "$TMPDIR/bundles.txt" "$TMPDIR/shipped.txt")
+                if [ -n "$missing" ]; then
+                  echo "profile-templates: template bundles outside the in-box set:" >&2
+                  printf '%s\n' "$missing" >&2
+                  exit 1
+                fi
+                echo "templates: $(wc -l < "$TMPDIR/have.txt"); bundles: $(wc -l < "$TMPDIR/bundles.txt")"
+                touch "$out"
+              '';
+
+          # A template profile takes its bundles from PROFILE_TEMPLATES and
+          # boots without the user listing any bundle.
+          profile-template =
+            let
+              profile = profilesLib.mkProfile {
+                name = "web";
+                extends = "web";
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile {
+                inherit pkgs profile;
+                install = self.packages.${system}.dsh;
+              };
+            in
+            pkgs.runCommand "dsh-profile-template-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                jq -e --argjson want "$expected" '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
+                  || { echo "profile-template: bundles differ from PROFILE_TEMPLATES.web" >&2; exit 1; }
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/web"
+                chmod -R u+w "$home/profiles/web"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} web "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                touch "$out"
+              '';
+
+          # Extending a template keeps its bundles and settings, appends the
+          # declared extra bundle, and applies the user patch layer on top.
+          profile-template-extension =
+            let
+              profile = profilesLib.mkProfile {
+                name = "web-extended";
+                extends = "web";
+                extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
+                userPatches = [
+                  {
+                    insert = [
+                      { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
+                    ];
+                  }
+                ];
+                inherit inBoxNames;
+              };
+              artifact = profilesLib.buildProfile {
+                inherit pkgs profile;
+                install = self.packages.${system}.dsh;
+              };
+            in
+            pkgs.runCommand "dsh-profile-template-extension-check"
+              {
+                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+              }
+              ''
+                expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                jq -e --argjson want "$(printf '%s' "$expected" | jq -c '. + ["@deepseek-ai/dsh-experimental-session-search"]')" \
+                  '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
+                  || { echo "profile-template-extension: template bundles were not kept in order" >&2; exit 1; }
+                jq -e '.[0].insert[0].name == "@deepseek-ai/dsh-tool-str-replace-editor"' \
+                  ${artifact}/cordis.patch.yml >/dev/null \
+                  || { echo "profile-template-extension: user patch layer missing" >&2; exit 1; }
+                home="$TMPDIR/home"
+                mkdir -p "$home/profiles"
+                cp -a ${artifact} "$home/profiles/web-extended"
+                chmod -R u+w "$home/profiles/web-extended"
+                if ! ${pkgs.nodejs}/bin/node --expose-internals \
+                  --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
+                  ${./scripts/check-profile.mjs} \
+                  ${self.packages.${system}.dsh} web-extended "$home" --port 0 --no-open \
+                  > "$TMPDIR/check.log" 2>&1; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
+                grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+                if grep -q 'skipping profile bundle' "$TMPDIR/check.log"; then
+                  cat "$TMPDIR/check.log" >&2
+                  exit 1
+                fi
                 touch "$out"
               '';
 
@@ -782,10 +918,9 @@
               '';
 
           # Official ON-DEMAND bundles by name: dsh-subagent-codex and
-          # dsh-subagent-claude-code are not in the installation, so dsh-nix
-          # builds them from their pinned npm releases (official/ pins).  The
-          # profile links them like Nix-package plugins and boots with no
-          # skipped bundle.
+          # dsh-subagent-claude-code are not installation dependencies, but the
+          # pinned dsh source builds them; dsh-nix links the installed package
+          # and boots with no skipped bundle.
           profile-official-on-demand =
             let
               profile = profilesLib.mkProfile {
@@ -812,6 +947,8 @@
                   "$home/profiles/official-on-demand/package.json" >/dev/null
                 test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/package.json"
                 test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/package.json"
+                test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/node_modules/@openai/codex"
+                test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/node_modules/@anthropic-ai/claude-agent-sdk"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
                   ${./scripts/check-profile.mjs} \

@@ -65,7 +65,6 @@ let
     {
       inBoxNames ? [ ],
       installBundles ? [ ],
-      officialBundles ? { },
       plugin,
     }:
     if builtins.isString plugin then
@@ -78,14 +77,6 @@ let
         {
           kind = "install-bundle";
           name = plugin;
-        }
-      else if officialBundles ? ${plugin} then
-        {
-          kind = "nix";
-          plugin = mkBundle {
-            path = officialBundles.${plugin};
-            packageName = plugin;
-          };
         }
       else
         {
