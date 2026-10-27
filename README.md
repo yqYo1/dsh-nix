@@ -236,7 +236,7 @@ The public key for signature verification is pinned in `flake.nix`; downloads ne
 
 ## Repository layout
 
-For readers working through the repository source:
+For readers working with the code:
 
 - `flake.nix` / `flake.lock` — flake inputs and outputs: the CLI package, overlay, NixOS/Home Manager modules and checks.
 - `pkgs/` — the dsh package build, its pnpm-deps fixed-output support and the Node builtin shim.
