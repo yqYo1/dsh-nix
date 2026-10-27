@@ -35,7 +35,7 @@ let
           package = externalPackage;
           homePatchesFile = null;
           profiles.agent = {
-            plugins = [ "@deepseek-ai/dsh-base" ../examples/plugins/tui-core ];
+            plugins = [ "@deepseek-ai/dsh-base" ./fixtures/lifecycle-probe ];
             userPatches = [ ];
           };
         };

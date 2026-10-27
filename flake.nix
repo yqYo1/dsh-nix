@@ -8,13 +8,8 @@
 # Cordis stays DSH's runtime; this flake does not reimplement it.
 #
 #   nix flake check                         assertions + profile artifact shape
-#   nix eval .#profiles.tui --json          the declared profile (ordered bundles)
-#   nix build .#packages.x86_64-linux.tui   the immutable profile directory
-#   ./scripts/profile-smoke.sh              boot it with the packaged dsh CLI
+#   nix build .#dsh                         the packaged CLI
 #
-# Optional: examples/profiles/dsh-web.nix shows importing dsh's own shipped
-# bundles (non-flake repo input) with zero transcription; wire it in when a
-# dsh checkout is visible to the flake.
 {
   description = "Nix-native DSH profile builder";
 
@@ -103,24 +98,6 @@
       # installs one profile per name by default; the bundles come from the
       # dsh installation at build time, never from user configuration.
       profileTemplates = [ "acp" "headless" "sdk" "sdk-minimal" "web" ];
-      tui = import ./examples/profiles/tui.nix {
-        inherit plugins profilesLib inBoxNames;
-      };
-      web = import ./examples/profiles/web.nix {
-        inherit profilesLib inBoxNames;
-      };
-      headless = import ./examples/profiles/headless.nix {
-        inherit profilesLib inBoxNames;
-      };
-
-      profiles = {
-        inherit
-          tui
-          web
-          headless
-          ;
-      };
-
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         pluginsLib = plugins;
         inherit profilesLib inBoxNames profileTemplates onDemandBundles;
@@ -143,7 +120,6 @@
         lib
         plugins
         profilesLib
-        profiles
         homeManagerModules
         ;
       inherit overlay;
@@ -171,20 +147,6 @@
           default = dshPackage;
           dsh = dshPackage;
 
-          tui = profilesLib.buildProfile {
-            inherit pkgs;
-            profile = profiles.tui;
-          };
-
-          web = profilesLib.buildProfile {
-            inherit pkgs;
-            profile = profiles.web;
-          };
-
-          headless = profilesLib.buildProfile {
-            inherit pkgs;
-            profile = profiles.headless;
-          };
         }
       );
 
@@ -192,26 +154,24 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          tuiArtifact = self.packages.${system}.tui;
-          expectedBundles = builtins.toJSON [ "@dsh-nix/tui-core" ];
+          webArtifact = profilesLib.buildProfile {
+            inherit pkgs;
+            profile = profilesLib.mkProfile {
+              name = "web";
+              plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
+              inherit inBoxNames;
+            };
+          };
+          headlessArtifact = profilesLib.buildProfile {
+            inherit pkgs;
+            profile = profilesLib.mkProfile {
+              name = "headless";
+              plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-headless" ];
+              inherit inBoxNames;
+            };
+          };
         in
         {
-          profile-tui =
-            pkgs.runCommand "dsh-profile-tui-check"
-              {
-                nativeBuildInputs = [ pkgs.jq ];
-              }
-              ''
-                package_json=${tuiArtifact}/package.json
-                actual_bundles=$(jq -c '.dsh.profile.bundles' "$package_json")
-                expected_bundles=${lib.escapeShellArg expectedBundles}
-                test "$actual_bundles" = "$expected_bundles"
-
-                test -L ${tuiArtifact}/node_modules/@dsh-nix/tui-core
-
-                touch "$out"
-              '';
-
           # Official-bundle drift guard: the accepted by-name set must equal
           # every bundle the installation ships.  The rule mirrors the
           # plugin-manager's own `shipped` computation: a package is an
@@ -363,7 +323,7 @@
               }
               ''
                 templates=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
-                  ${./scripts/read-profile-template.mjs} "$install") || exit 1
+                  ${./lib/read-profile-template.mjs} "$install") || exit 1
                 printf '%s\n' "$names" | jq -r '.[]' | sort > "$TMPDIR/want.txt"
                 printf '%s' "$templates" | jq -r 'keys[]' | sort > "$TMPDIR/have.txt"
                 if ! diff -u "$TMPDIR/want.txt" "$TMPDIR/have.txt"; then
@@ -402,7 +362,7 @@
               }
               ''
                 expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
-                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                  ${./lib/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
                 jq -e --argjson want "$expected" '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
                   || { echo "profile-template: bundles differ from PROFILE_TEMPLATES.web" >&2; exit 1; }
                 home="$TMPDIR/home"
@@ -453,7 +413,7 @@
               }
               ''
                 expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
-                  ${./scripts/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
+                  ${./lib/read-profile-template.mjs} ${self.packages.${system}.dsh} web) || exit 1
                 jq -e --argjson want "$(printf '%s' "$expected" | jq -c '. + ["@deepseek-ai/dsh-experimental-session-search"]')" \
                   '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
                   || { echo "profile-template-extension: template bundles were not kept in order" >&2; exit 1; }
@@ -492,28 +452,6 @@
 
           profile-regression = (import ./tests/profile-regression.nix { inherit pkgs; }).check;
 
-          profile-boot-tui =
-            pkgs.runCommand "dsh-profile-boot-tui-check" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
-              export HOME="$TMPDIR/home"
-              home="$HOME/.dsh"
-              mkdir -p "$home/profiles"
-              cp -a ${self.packages.${system}.tui} "$home/profiles/tui"
-              chmod -R u+w "$home/profiles/tui"
-              if ! ${pkgs.nodejs}/bin/node --expose-internals \
-                --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
-                ${./scripts/check-profile.mjs} \
-                ${self.packages.${system}.dsh} tui "$home" \
-                > "$TMPDIR/check.log" 2>&1; then
-                cat "$TMPDIR/check.log" >&2
-                exit 1
-              fi
-              grep -q '^CHECK-OK$' "$TMPDIR/check.log"
-              printf 'activated\ndisposed\n' > "$TMPDIR/expected-lifecycle"
-              cmp "$TMPDIR/expected-lifecycle" "$home/tui-fixture-lifecycle.log"
-              mkdir -p "$out"
-              cp "$home/tui-fixture-lifecycle.log" "$out/lifecycle"
-            '';
-
           home-module =
             pkgs.runCommand "dsh-home-module-check"
               {
@@ -542,7 +480,7 @@
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
-                cp -a ${self.packages.${system}.web} "$home/profiles/web"
+                cp -a ${webArtifact} "$home/profiles/web"
                 chmod -R u+w "$home/profiles/web"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
                   --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
@@ -564,7 +502,7 @@
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
-                cp -a ${self.packages.${system}.headless} "$home/profiles/headless"
+                cp -a ${headlessArtifact} "$home/profiles/headless"
                 chmod -R u+w "$home/profiles/headless"
                 # rc.1 starts the one-shot runner during apply, without
                 # appReady. This boot-only fixture disables that row and
@@ -803,7 +741,7 @@
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
-                cp -a ${self.packages.${system}.web} "$home/profiles/web-nobase"
+                cp -a ${webArtifact} "$home/profiles/web-nobase"
                 chmod -R u+w "$home/profiles/web-nobase"
                 jq '.dsh.profile.bundles = ["@deepseek-ai/dsh-web-app"]' \
                   "$home/profiles/web-nobase/package.json" > "$TMPDIR/package.json"

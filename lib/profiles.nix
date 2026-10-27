@@ -115,7 +115,7 @@ let
           exit 1
         fi
         templateBundles=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
-          ${../scripts/read-profile-template.mjs} "$install" "$template") || exit 1
+          ${./read-profile-template.mjs} "$install" "$template") || exit 1
         printf '%s' "$templateBundles" | jq -e 'type == "array" and length > 0' >/dev/null \
           || { echo "dsh profile: template $template returned no bundles" >&2; exit 1; }
         bundles=$(printf '%s' "$templateBundles" | jq -c '.')
