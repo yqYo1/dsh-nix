@@ -1,7 +1,7 @@
 # Home Manager module factory for `programs.dsh`.
 #
 # Declarative plugin management in the Thunderbird style: the module owns the
-# COMPOSITION layers under ~/.dsh (profiles/<name>/ + the home-level
+# COMPOSITION under ~/.dsh (profiles/<name>/ and the home-level
 # cordis.patch.yml), while the app owns its mutable data (settings.yaml after
 # seeding, .credentials.yaml, sessions/, storages/).
 #
@@ -9,13 +9,23 @@
 # ~/.dsh/profiles/<name> (writable; dsh rewrites the profile root cordis.yml
 # on every boot), comparing a stamp against the artifact store path.
 #
-# `plugins` accepts four forms in one ordered list:
-#   - in-box bundle names  ("@deepseek-ai/dsh-base")          name only
+# `plugins` accepts forms in one ordered list:
+#   - official bundle names ("@deepseek-ai/dsh-base": the bundles of the
+#     shipped profile templates, the shipped optional bundles, and the
+#     on-demand subagent bundles this repository builds)
+#                                      name only, nothing to package
 #   - pnpm spec strings    ("github:someone/plugin")          resolved at build
 #     time by a fixed-output derivation; pin with `specsHash`
 #   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
+#
+# Official cordis plugin packages that ship without a bundle of their own
+# (for example `@deepseek-ai/dsh-tool-str-replace-editor`) are mounted with
+# `userPatches` rows named after the installed package
+# (`{ insert = [ { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; } ]; }`);
+# the name resolves from the running installation.  A package without
+# `dsh.bundle` is a plain dependency, so a row is its mount point.
 #
 # `package` defaults to `pkgs.dsh` (overlay) or the bundled callPackage build.
 # The bundled build threads `fetchPnpmDepsFor` (system -> fetchPnpmDeps,
@@ -23,7 +33,7 @@
 # pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
 # the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
 # main build.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc, fetchPnpmDepsFor ? (_: null) }:
+{ pluginsLib, profilesLib, inBoxNames, dshSrc, onDemandBundles ? [ ], fetchPnpmDepsFor ? (_: null) }:
 
 { config, lib, pkgs, ... }:
 
@@ -36,10 +46,14 @@ let
         type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
         default = [ ];
         description = ''
-          Ordered plugin list. Each entry is one of: an in-box bundle name
-          (@deepseek-ai/dsh-*), a pnpm spec string (resolved at build time;
-          pin with specsLock/specsHash), a Nix package (a user-declared
-          derivation such as pkgs.buildNpmPackage), or a local plugin path.
+          Ordered plugin list. Each entry is one of: an official bundle name —
+          the bundles of the shipped profile templates and the
+          dsh-experimental-* optional bundles (resolved from the installation)
+          and the two on-demand subagent bundles (linked from the installed
+          dsh tree) — with nothing to package for users; a pnpm
+          spec string (resolved at build time; pin with specsLock/specsHash), an
+          out-of-tree Nix package (a derivation such as pkgs.buildNpmPackage), or
+          a local plugin path.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -50,7 +64,12 @@ let
       userPatches = lib.mkOption {
         type = lib.types.listOf lib.types.attrs;
         default = [ ];
-        description = "Inline profile patch list (JSON-serialisable only; use userPatchesFile for !!js).";
+        description = ''
+          Inline profile patch list (JSON-serialisable only; use userPatchesFile
+          for !!js). This is also how an installed cordis plugin package without
+          a bundle of its own is mounted by name, for example
+          { insert = [ { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; } ]; }.
+        '';
       };
       specsHash = lib.mkOption {
         type = lib.types.str;
@@ -71,15 +90,16 @@ let
   };
 
   declarations = lib.mapAttrs (name: p:
-    profilesLib.mkProfileBundle {
+    profilesLib.mkProfile {
       inherit name;
       inherit (p) userPatchesFile userPatches specsHash specsLock;
       plugins = p.plugins;
       inherit inBoxNames;
+      installBundles = onDemandBundles;
     }) cfg.profiles;
 
   artifacts = lib.mapAttrs (name: declaration:
-    profilesLib.buildProfileBundle { inherit pkgs; profile = declaration; }) declarations;
+    profilesLib.buildProfile { inherit pkgs; profile = declaration; }) declarations;
 
   # Profile names become a single pathname component under
   # ~/.dsh/profiles.  Validation mirrors upstream dsh (profile.ts): only

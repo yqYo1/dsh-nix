@@ -16,7 +16,7 @@
 #   - ordered mixture: in-box strings (exact declared order) + local PATH
 #     bundle + raw bundle DERIVATION + raw plain DERIVATION
 #   - plain dependency is symlinked but NOT activated in bundles
-#   - explicit in-box layer order is exact, not sorted
+#   - explicit in-box bundle order is exact, not sorted
 #   - userPatchesFile wins over inline userPatches, payload preserved verbatim
 #   - inline userPatches JSON payload preserved when no file is set
 #   - explicit patchPath projects a real rc.2-consumable layer: projected
@@ -70,13 +70,13 @@ let
     printf '%s\n' 'module.exports = 42;' > "$out/index.js"
   '';
 
-  ordered = profilesLib.mkProfileBundle {
+  ordered = profilesLib.mkProfile {
     name = "regression-ordered";
     inherit inBoxNames;
     plugins = [
       "@deepseek-ai/dsh-web-app"
       "@deepseek-ai/dsh-base"
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
       bundleDrv
       plainDrv
     ];
@@ -87,11 +87,11 @@ let
     specsHash = "";
   };
 
-  inline = profilesLib.mkProfileBundle {
+  inline = profilesLib.mkProfile {
     name = "regression-inline";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
     ];
     userPatchesFile = null;
     userPatches = [
@@ -102,11 +102,11 @@ let
 
   # Narrow explicit-patchPath case: plain manifest has no bundle.patch, but
   # an explicit patchPath must force layer membership at runtime.
-  forced = profilesLib.mkProfileBundle {
+  forced = profilesLib.mkProfile {
     name = "regression-forced";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = plainDrv; patchPath = "cordis.patch.yml"; })
+      (pluginsLib.mkBundle { path = plainDrv; patchPath = "cordis.patch.yml"; })
     ];
     userPatchesFile = null;
     userPatches = [ ];
@@ -127,46 +127,46 @@ let
   #   the stale in-package file before cp, else cp writes through a symlink
   #   into the read-only store (or same-file error). This leg fails without
   #   the guard and is the real regression proof.
-  external = profilesLib.mkProfileBundle {
+  external = profilesLib.mkProfile {
     name = "regression-external";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = plainDrv; patchPath = ./fixtures/external-patch/cordis.patch.yml; })
+      (pluginsLib.mkBundle { path = plainDrv; patchPath = ./fixtures/external-patch/cordis.patch.yml; })
     ];
     userPatchesFile = null;
     userPatches = [ ];
     specsHash = "";
   };
 
-  externalColliding = profilesLib.mkProfileBundle {
+  externalColliding = profilesLib.mkProfile {
     name = "regression-external-colliding";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = plainDrv; patchPath = "${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml"; })
+      (pluginsLib.mkBundle { path = plainDrv; patchPath = "${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml"; })
     ];
     userPatchesFile = null;
     userPatches = [ ];
     specsHash = "";
   };
 
-  orderedArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = ordered; };
-  inlineArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = inline; };
-  forcedArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = forced; };
-  externalArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = external; };
-  externalCollidingArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = externalColliding; };
+  orderedArtifact = profilesLib.buildProfile { inherit pkgs; profile = ordered; };
+  inlineArtifact = profilesLib.buildProfile { inherit pkgs; profile = inline; };
+  forcedArtifact = profilesLib.buildProfile { inherit pkgs; profile = forced; };
+  externalArtifact = profilesLib.buildProfile { inherit pkgs; profile = external; };
+  externalCollidingArtifact = profilesLib.buildProfile { inherit pkgs; profile = externalColliding; };
 
   # Eval-time duplicate names (path bundles) must still throw.
-  duplicateEval = builtins.tryEval (profilesLib.mkProfileBundle {
+  duplicateEval = builtins.tryEval (profilesLib.mkProfile {
     name = "dup";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
-      (pluginsLib.mkPluginBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
+      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
     ];
   });
 
   # Two deferred (null) names must NOT throw at eval; runtime resolves them.
-  deferredEval = builtins.tryEval (profilesLib.mkProfileBundle {
+  deferredEval = builtins.tryEval (profilesLib.mkProfile {
     name = "deferred-ok";
     inherit inBoxNames;
     plugins = [ bundleDrv plainDrv ];
@@ -175,7 +175,7 @@ let
   # Actual duplicate raw names: eval defers (both null), but the build must
   # fail loud on the resolved duplicate. Exposed separately so callers can
   # exercise the malformed failure without breaking `check`.
-  duplicateProfile = profilesLib.mkProfileBundle {
+  duplicateProfile = profilesLib.mkProfile {
     name = "regression-duplicate";
     inherit inBoxNames;
     plugins = [ bundleDrv bundleDrv ];
@@ -183,7 +183,7 @@ let
     userPatches = [ ];
     specsHash = "";
   };
-  duplicateArtifact = profilesLib.buildProfileBundle { inherit pkgs; profile = duplicateProfile; };
+  duplicateArtifact = profilesLib.buildProfile { inherit pkgs; profile = duplicateProfile; };
 in
 assert !duplicateEval.success;
 assert deferredEval.success;
@@ -200,11 +200,11 @@ assert deferredEval.success;
       inline=${inlineArtifact}
       forced=${forcedArtifact}
 
-      # --- ordered mixture: exact layer order (in-box order preserved) ---
-      expected_layers='["@deepseek-ai/dsh-web-app","@deepseek-ai/dsh-base","@test/local-bundle","@test/bundle-plugin"]'
-      actual_layers=$(jq -c '.dsh.profile.bundles' "$ordered/package.json")
-      if [ "$actual_layers" != "$expected_layers" ]; then
-        echo "layers mismatch: got $actual_layers want $expected_layers" >&2
+      # --- ordered mixture: exact bundle order (in-box order preserved) ---
+      expected_bundles='["@deepseek-ai/dsh-web-app","@deepseek-ai/dsh-base","@test/local-bundle","@test/bundle-plugin"]'
+      actual_bundles=$(jq -c '.dsh.profile.bundles' "$ordered/package.json")
+      if [ "$actual_bundles" != "$expected_bundles" ]; then
+        echo "bundles mismatch: got $actual_bundles want $expected_bundles" >&2
         exit 1
       fi
 

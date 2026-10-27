@@ -1,5 +1,5 @@
 { profilesLib, inBoxNames }:
-profilesLib.mkProfileBundle {
+profilesLib.mkProfile {
   name = "headless";
   inherit inBoxNames;
   plugins = [

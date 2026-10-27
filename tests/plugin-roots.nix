@@ -8,7 +8,7 @@
 # A passing build writes `$out/passed` and per-leg logs under `$out/logs`.
 #
 # Policy under test (lib/profiles.nix `resolve_effective_root` + name/patch
-# selection in `buildProfileBundle`):
+# selection in `buildProfile`):
 #   - an existing root package.json wins, whether zero or two installed
 #     candidates sit under lib/node_modules;
 #   - otherwise exactly one DIRECT lib/node_modules/<name> or
@@ -16,7 +16,7 @@
 #   - zero or multiple direct candidates fail loud; deep transitive
 #     manifests (.../node_modules/.../node_modules/...) never count;
 #   - identity comes from the manifest `name` (never pname/store name);
-#     an explicit `mkPluginBundle packageName` override wins for the mapping;
+#     an explicit `mkBundle packageName` override wins for the mapping;
 #   - a relative `patchPath` string and an absolute external patch file stay
 #     preserved verbatim against the EFFECTIVE root (projected manifest
 #     declares exactly the selection, selected bytes beside it);
@@ -24,7 +24,7 @@
 #
 # Execution model (no reimplemented resolver, no snapshot-string proofs):
 # every leg executes the ACTUAL rendered production builder
-# (`subject.drvAttrs.buildCommand` of a real `buildProfileBundle`
+# (`subject.drvAttrs.buildCommand` of a real `buildProfile`
 # derivation) inside this check's sandbox as
 #   out=<scratch-candidate> bash -e -c <rendered buildCommand>
 # with pinned bash/stdenv + jq/coreutils/findutils on PATH. The rendered
@@ -54,14 +54,14 @@ let
   pluginsLib = import ../lib/plugins.nix { inherit lib; };
   profilesLib = import ../lib/profiles.nix { inherit lib; };
 
-  mkProfile = name: plugins: profilesLib.mkProfileBundle {
+  mkProfile = name: plugins: profilesLib.mkProfile {
     inherit name plugins;
     inBoxNames = [ ];
     userPatchesFile = null;
     userPatches = [ ];
     specsHash = "";
   };
-  build = profile: profilesLib.buildProfileBundle { inherit pkgs profile; };
+  build = profile: profilesLib.buildProfile { inherit pkgs profile; };
 
   # Root manifest, zero installed candidates underneath.
   rootPkg = pkgs.runCommand "roots-mock-root" { } ''
@@ -160,13 +160,13 @@ let
   emptySubject = build (mkProfile "roots-empty" [ emptyPkg ]);
   ambiguousSubject = build (mkProfile "roots-ambiguous" [ ambiguousPkg ]);
   overrideSubject = build (mkProfile "roots-override" [
-    (pluginsLib.mkPluginBundle { path = scopedPkg; packageName = "@rt/override-name"; })
+    (pluginsLib.mkBundle { path = scopedPkg; packageName = "@rt/override-name"; })
   ]);
   relativeSubject = build (mkProfile "roots-relative-patch" [
-    (pluginsLib.mkPluginBundle { path = patchPkg; patchPath = "cordis.patch.yml"; })
+    (pluginsLib.mkBundle { path = patchPkg; patchPath = "cordis.patch.yml"; })
   ]);
   externalSubject = build (mkProfile "roots-external-patch" [
-    (pluginsLib.mkPluginBundle { path = patchPkg; patchPath = externalPatch; })
+    (pluginsLib.mkBundle { path = patchPkg; patchPath = externalPatch; })
   ]);
 
   # The ACTUAL rendered production builder commands (eval-time text only;
@@ -269,7 +269,7 @@ let
         fail "unscoped leg leaked deep transitive dep"
       fi
       if jq -e '.dsh.profile.bundles | index("rt-deep")' "$cand/package.json" > /dev/null; then
-        fail "deep transitive dep activated as layer"
+        fail "deep transitive dep became a profile bundle"
       fi
       pass "label=unscoped: direct lib/node_modules/<name> accepted, deep transitive ignored"
 

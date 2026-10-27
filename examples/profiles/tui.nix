@@ -1,9 +1,9 @@
 { plugins, profilesLib, inBoxNames }:
-profilesLib.mkProfileBundle {
+profilesLib.mkProfile {
   name = "tui";
   inherit inBoxNames;
   plugins = [
-    (plugins.mkPluginBundle {
+    (plugins.mkBundle {
       path = ./../plugins/tui-core;
     })
   ];
