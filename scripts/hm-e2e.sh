@@ -16,7 +16,7 @@
 #      $HOME/.nix-profile. The script asserts both landings and refuses to
 #      continue otherwise -- never faking success.
 #   3. The profile-installed dsh boots the fixture `agent` profile
-#      (examples/plugins/tui-core, path-only, no network): the marker shows
+#      (tests/fixtures/lifecycle-probe, path-only, no network): the marker shows
 #      `activated`, then SIGTERM yields clean exit 0 and `disposed`.
 #   4. The directly declared `user-npm` profile (the RAW buildNpmPackage
 #      derivation in plugins, no selectors/surgery) lands with stamp ==
@@ -514,7 +514,7 @@ cmp -s "$tmp/usernpm-expected-lifecycle" "$usernpm_lifecycle" ||
   fail "user-npm lifecycle mismatch; observed: $(cat "$usernpm_lifecycle" 2>/dev/null || true)"
 
 # --- boot the profile-installed dsh, assert activated -> disposed ----------
-marker_file="$DSH_HOME/tui-fixture-lifecycle.log"
+marker_file="$DSH_HOME/dsh-nix-lifecycle.log"
 stderr_file="$tmp/stderr"
 (cd "$HOME" && exec env -u DBUS_SESSION_BUS_ADDRESS \
   HOME="$HOME" XDG_STATE_HOME="$XDG_STATE_HOME" DSH_HOME="$DSH_HOME" \
