@@ -7,17 +7,23 @@ let
   mkProfile =
     {
       name,
-      plugins,
+      plugins ? [ ],
+      extraPlugins ? [ ],
+      extends ? null,
       inBoxNames ? [ ],
       installBundles ? [ ],
-      officialBundles ? { },
       userPatchesFile ? null,
       userPatches ? [ ],
       specsHash ? "",
       specsLock ? null,
     }:
     let
-      classified = map (plugin: classifyPlugin { inherit inBoxNames installBundles officialBundles plugin; }) plugins;
+      # A template profile starts from a shipped profile template
+      # (PROFILE_TEMPLATES, read from the dsh installation at build time) and
+      # adds `extraPlugins`; a custom profile declares every entry in
+      # `plugins` and uses no template.
+      selected = if extends == null then plugins else extraPlugins;
+      classified = map (plugin: classifyPlugin { inherit inBoxNames installBundles plugin; }) selected;
       nixEntries = map (entry: entry.plugin)
         (builtins.filter (entry: entry.kind == "nix") classified);
       packageNames = map (plugin: plugin.packageName) nixEntries;
@@ -45,8 +51,10 @@ let
           specsLock;
     in
     assert uniquePackageNames;
+    assert extends == null || plugins == [ ];
+    assert extends != null || extraPlugins == [ ];
     {
-      inherit name userPatchesFile userPatches specsHash;
+      inherit name extends userPatchesFile userPatches specsHash;
       specsLock = checkedSpecsLock;
       plugins = classified;
       inBox = map (entry: entry.name)
@@ -60,8 +68,9 @@ let
   buildProfile =
     { pkgs, profile, install ? null }:
     let
+      template = profile.extends or null;
       installBundleNames = profile.installBundles or [ ];
-      needsInstall = installBundleNames != [ ];
+      needsInstall = template != null || installBundleNames != [ ];
       installArg = if !needsInstall || install == null then "" else toString install;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;
@@ -113,14 +122,26 @@ let
       specRootArg = if specsRoot == null then "" else toString specsRoot;
     in
     pkgs.runCommand "dsh-profile-${profile.name}" {
-      buildInputs = [ pkgs.jq ];
+      buildInputs = [ pkgs.jq ] ++ (if template == null then [ ] else [ pkgs.nodejs ]);
     } ''
       mkdir -p "$out/node_modules"
       metadata=${lib.escapeShellArg (toString metadata)}
-      install=${lib.escapeShellArg installArg}
       specRoot=${lib.escapeShellArg specRootArg}
 
       bundles='[]'
+      install=${lib.escapeShellArg installArg}
+      template=${lib.escapeShellArg (if template == null then "" else template)}
+      if [ -n "$template" ]; then
+        if [ -z "$install" ] || [ ! -f "$install/lib/dsh-builtin-compat.cjs" ]; then
+          echo "dsh profile: template $template needs the dsh installation" >&2
+          exit 1
+        fi
+        templateBundles=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
+          ${../scripts/read-profile-template.mjs} "$install" "$template") || exit 1
+        printf '%s' "$templateBundles" | jq -e 'type == "array" and length > 0' >/dev/null \
+          || { echo "dsh profile: template $template returned no bundles" >&2; exit 1; }
+        bundles=$(printf '%s' "$templateBundles" | jq -c '.')
+      fi
       specIndex=0
       if [ -n "$specRoot" ]; then
         directCount=$(jq 'length' "$specRoot/direct-specs.json")
@@ -243,6 +264,14 @@ let
             ;;
         esac
         if [ -n "$bundle" ]; then
+          if printf '%s' "$bundles" | jq -e --arg b "$bundle" 'index($b)' >/dev/null 2>&1; then
+            if [ -n "$template" ]; then
+              echo "dsh profile: bundle $bundle is already in template $template" >&2
+            else
+              echo "dsh profile: duplicate bundle $bundle" >&2
+            fi
+            exit 1
+          fi
           bundles=$(printf '%s' "$bundles" | jq -c --arg bundle "$bundle" '. + [$bundle]')
         fi
       done < <(jq -c '.classes[]' "$metadata")
@@ -320,7 +349,9 @@ let
           esac
         fi
       done < <(jq -c '.nixMetadata[]' "$metadata")
-
+      # Installed-source bundles (the on-demand official bundles): link the
+      # package directory from the dsh installation.  Its node_modules stays
+      # in place, so pnpm's relative workspace links remain valid.
       while IFS= read -r entry; do
         name=$(printf '%s' "$entry" | jq -r '.name')
         if [ -z "$install" ]; then
