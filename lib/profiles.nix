@@ -2,7 +2,7 @@
 
 let
   pluginsLib = import ./plugins.nix { inherit lib; };
-  inherit (pluginsLib) classifyPlugin fetchSpecs;
+  inherit (pluginsLib) classifyPlugin;
 
   mkProfile =
     {
@@ -14,8 +14,6 @@ let
       installBundles ? [ ],
       userPatchesFile ? null,
       userPatches ? [ ],
-      specsHash ? "",
-      specsLock ? null,
     }:
     let
       # A template profile starts from a shipped profile template
@@ -42,27 +40,18 @@ let
           true
         else
           throw "dsh profile: plugin packageNames must be unique";
-      specs = map (entry: entry.spec)
-        (builtins.filter (entry: entry.kind == "spec") classified);
-      checkedSpecsLock =
-        if specsLock != null && specs == [ ] then
-          throw "dsh profile ${checkedName}: specsLock given but no spec plugins declared"
-        else
-          specsLock;
     in
     assert uniquePackageNames;
     assert extends == null || plugins == [ ];
     assert extends != null || extraPlugins == [ ];
     {
-      inherit name extends userPatchesFile userPatches specsHash;
-      specsLock = checkedSpecsLock;
+      inherit name extends userPatchesFile userPatches;
       plugins = classified;
       inBox = map (entry: entry.name)
         (builtins.filter (entry: entry.kind == "in-box") classified);
       installBundles = map (entry: entry.name)
         (builtins.filter (entry: entry.kind == "install-bundle") classified);
       inherit nixEntries;
-      inherit specs;
     };
 
   buildProfile =
@@ -74,13 +63,6 @@ let
       installArg = if !needsInstall || install == null then "" else toString install;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;
-      specEntries = builtins.filter (entry: entry.kind == "spec") classified;
-      specsRoot = if profile.specs == [ ] then null else fetchSpecs {
-        inherit pkgs;
-        specs = profile.specs;
-        hash = profile.specsHash;
-        specsLock = profile.specsLock or null;
-      };
       nixMetadata = map (entry: {
         packageName = entry.plugin.packageName;
         packagePath = toString entry.plugin.packagePath;
@@ -97,11 +79,9 @@ let
       }) nixEntries;
       metadata = pkgs.writeText "dsh-profile-plugins.json" (builtins.toJSON {
         inherit nixMetadata;
-        specCount = builtins.length specEntries;
         classes = map (entry:
           if entry.kind == "in-box" || entry.kind == "install-bundle" then
             { kind = entry.kind; name = entry.name; }
-          else if entry.kind == "spec" then { kind = entry.kind; }
           else {
             kind = entry.kind;
             packageName = entry.plugin.packageName;
@@ -119,14 +99,12 @@ let
       # can see it: plain toString would keep the original /home path.
       patchSource =
         if profile.userPatchesFile != null then builtins.path { path = profile.userPatchesFile; } else null;
-      specRootArg = if specsRoot == null then "" else toString specsRoot;
     in
     pkgs.runCommand "dsh-profile-${profile.name}" {
       buildInputs = [ pkgs.jq ] ++ (if template == null then [ ] else [ pkgs.nodejs ]);
     } ''
       mkdir -p "$out/node_modules"
       metadata=${lib.escapeShellArg (toString metadata)}
-      specRoot=${lib.escapeShellArg specRootArg}
 
       bundles='[]'
       install=${lib.escapeShellArg installArg}
@@ -141,15 +119,6 @@ let
         printf '%s' "$templateBundles" | jq -e 'type == "array" and length > 0' >/dev/null \
           || { echo "dsh profile: template $template returned no bundles" >&2; exit 1; }
         bundles=$(printf '%s' "$templateBundles" | jq -c '.')
-      fi
-      specIndex=0
-      if [ -n "$specRoot" ]; then
-        directCount=$(jq 'length' "$specRoot/direct-specs.json")
-        wantCount=$(jq -r '.specCount' "$metadata")
-        if [ "$directCount" != "$wantCount" ]; then
-          echo "dsh profile: direct-specs.json has $directCount entries, want $wantCount" >&2
-          exit 1
-        fi
       fi
       # Resolve the effective package root without IFD: a root package.json
       # wins; otherwise accept exactly one direct buildNpmPackage installed
@@ -243,14 +212,6 @@ let
             ;;
           install-bundle)
             bundle=$(printf '%s' "$entry" | jq -r '.name')
-            ;;
-          spec)
-            # Declaration order comes from direct-specs.json (validated
-            # against the installer importer), never from package.json key
-            # order: pnpm insertion order is not the declaration order and
-            # auto-installed peers must never become profile bundles.
-            bundle=$(jq -r --argjson i "$specIndex" '.[$i].packageName' "$specRoot/direct-specs.json")
-            specIndex=$((specIndex + 1))
             ;;
           nix)
             packagePath=$(printf '%s' "$entry" | jq -r '.packagePath')
@@ -368,29 +329,6 @@ let
         if [ "$parent" != . ]; then mkdir -p "$out/node_modules/$parent"; fi
         ln -s "$dir" "$out/node_modules/$name"
       done < <(jq -c '.classes[] | select(.kind == "install-bundle")' "$metadata")
-
-      if [ -n "$specRoot" ]; then
-        # Project ONLY the ordered direct specs, one package at a time.
-        # The fetcher closure keeps the full .pnpm graph; each top-level
-        # symlink resolves through it at runtime.  Whole-scope symlinks
-        # would leak sibling packages and collide with same-scope Nix
-        # entries, so scoped names get a parent mkdir + single link.
-        # Auto-installed peers stay in the closure, never in the profile.
-        while IFS= read -r packageName; do
-          case "$seen_nix_names" in
-            *" $packageName "*) echo "dsh profile: duplicate plugin packageName $packageName (spec vs nix)" >&2; exit 1 ;;
-          esac
-          seen_nix_names="$seen_nix_names$packageName "
-          src="$specRoot/node_modules/$packageName"
-          if [ ! -e "$src" ]; then
-            echo "dsh profile: spec package $packageName missing from spec closure" >&2
-            exit 1
-          fi
-          parent=$(dirname "$packageName")
-          if [ "$parent" != . ]; then mkdir -p "$out/node_modules/$parent"; fi
-          ln -s "$src" "$out/node_modules/$packageName"
-        done < <(jq -r '.[].packageName' "$specRoot/direct-specs.json")
-      fi
 
       jq -n --arg name ${lib.escapeShellArg profile.name} --argjson bundles "$bundles" --argjson dependencies "$dependencies" \
         '{name: $name, version: "0.0.0", private: true, dsh: {profile: {bundles: $bundles}}, dependencies: $dependencies}' > "$out/package.json"

@@ -9,16 +9,17 @@
 # ~/.dsh/profiles/<name> (writable; dsh rewrites the profile root cordis.yml
 # on every boot), comparing a stamp against the artifact store path.
 #
-# `plugins` accepts forms in one ordered list:
+# `plugins` and `extraPlugins` accept forms in one ordered list:
 #   - official bundle names ("@deepseek-ai/dsh-base": the bundles of the
 #     shipped profile templates, the shipped optional bundles, and the
 #     on-demand subagent bundles linked from the pinned dsh source)
 #                                      name only, nothing to package
-#   - pnpm spec strings    ("github:someone/plugin")          resolved at build
-#     time by a fixed-output derivation; pin with `specsHash`
 #   - Nix packages/paths   (pkgs.buildNpmPackage { ... })     symlinked in at
 #     their effective root (package manifest or installed npm layout)
 #   - local plugin paths   (./my-plugin)                      symlinked in
+#
+# Plugins that are not official bundles must be provided as Nix packages or
+# paths (package them yourself); bare non-official names are rejected.
 #
 # A profile with `extends` set starts from that shipped template: the bundles
 # come from the dsh installation (PROFILE_TEMPLATES) at build time,
@@ -69,8 +70,9 @@ let
         default = [ ];
         description = ''
           Entries appended to the template profile after its template bundles.
-          Only the listed entries are added; everything else keeps the
-          template's settings.
+          Accepts the same forms as plugins (official bundle names, Nix
+          packages, plugin paths). Only the listed entries are added;
+          everything else keeps the template's settings.
         '';
       };
       userPatchesFile = lib.mkOption {
@@ -86,16 +88,6 @@ let
           userPatchesFile for !!js). Overrides only the rows it names, on top
           of the template's bundles.
         '';
-      };
-      specsHash = lib.mkOption {
-        type = lib.types.str;
-        default = "";
-        description = "Fixed-output hash verifying a spec-plugin artifact added through extraPlugins.";
-      };
-      specsLock = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
-        description = "Lockfile pinning spec-plugin resolution for extraPlugins.";
       };
     };
   };
@@ -125,8 +117,9 @@ let
         type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
         default = [ ];
         description = ''
-          Entries appended after the extended template's bundles. Only valid
-          together with `extends`.
+          Entries appended after the extended template's bundles. Accepts the
+          same forms as plugins (official bundle names, Nix packages, plugin
+          paths). Only valid together with `extends`.
         '';
       };
       plugins = lib.mkOption {
@@ -135,7 +128,8 @@ let
         description = ''
           Full custom plugin list: the profile is entirely user-defined, uses
           no template, and may therefore share a name with an enabled template
-          only after that template profile is disabled. Mutually exclusive
+          only after that template profile is disabled. Accepts official
+          bundle names, Nix packages, and plugin paths. Mutually exclusive
           with `extends`.
         '';
       };
@@ -152,21 +146,6 @@ let
           for !!js). This is also how an installed cordis plugin package without
           a bundle of its own is mounted by name, for example
           { insert = [ { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; } ]; }.
-        '';
-      };
-      specsHash = lib.mkOption {
-        type = lib.types.str;
-        default = "";
-        description = "Fixed-output hash verifying the built spec-plugin artifact. To pin dependency resolution as well, specify specsLock.";
-      };
-      specsLock = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
-        description = ''
-          A Git-managed pnpm-lock.yaml that pins spec-plugin dependency resolution.
-          When set, the manifest is reconstructed from the root importer and built with --frozen-lockfile.
-          Lockfiles that disagree with the declaration are rejected; there is no fallback to unpinned resolution.
-          Without it, hash-only setups re-resolve registry version ranges at build time.
         '';
       };
     };
@@ -204,7 +183,7 @@ let
     profilesLib.mkProfile {
       inherit name;
       extends = name;
-      inherit (t) extraPlugins userPatchesFile userPatches specsHash specsLock;
+      inherit (t) extraPlugins userPatchesFile userPatches;
       inherit inBoxNames;
       installBundles = onDemandBundles;
     }) (lib.filterAttrs (_: t: t.enable) checkedTemplates);
@@ -214,7 +193,7 @@ let
       inherit name;
       extends = p.extends;
       plugins = if p.plugins == null then [ ] else p.plugins;
-      inherit (p) extraPlugins userPatchesFile userPatches specsHash specsLock;
+      inherit (p) extraPlugins userPatchesFile userPatches;
       inherit inBoxNames;
       installBundles = onDemandBundles;
     }) (lib.filterAttrs (_: p: p.enable) checkedProfiles);
@@ -362,7 +341,7 @@ in
           { src = dshSrc; } // lib.optionalAttrs (fetcher != null) { fetchPnpmDeps = fetcher; }
         ));
       defaultText = "pkgs.dsh (via inputs.dsh-nix.overlays.default) or the bundled callPackage build with the pinned pnpm-deps fetch support";
-      description = "The dsh CLI package to install.";
+      description = "The dsh CLI package to install. Keep it the unwrapped dsh installation: template profiles read PROFILE_TEMPLATES from it and on-demand bundles link its source tree.";
     };
 
     templates = lib.mkOption {
@@ -371,19 +350,27 @@ in
       # listing its bundles: the template definition comes from the dsh
       # installation.  Disable one with templates.<name>.enable = false.
       default = lib.genAttrs profileTemplates (_: { });
-      description = "Shipped profile templates materialised under ~/.dsh/profiles/<name>.";
+      description = ''
+        Shipped profile templates materialised under ~/.dsh/profiles/<name>.
+        Enabled by default; extend with extraPlugins/userPatches, or disable
+        one to free its name for a user profile.
+      '';
     };
 
     profiles = lib.mkOption {
       type = lib.types.attrsOf profileModule;
       default = { };
-      description = "User-defined profiles, either fully custom or extending a shipped template.";
+      description = ''
+        User-defined profiles. Each sets plugins (a fully custom composition)
+        or extends a shipped template. A profile name shared with an enabled
+        template profile is rejected.
+      '';
     };
 
     homePatchesFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
-      description = "Machine-level patch layer written to ~/.dsh/cordis.patch.yml.";
+      description = "Machine-level patch layer written to ~/.dsh/cordis.patch.yml and applied after each profile patch.";
     };
 
     settings = lib.mkOption {

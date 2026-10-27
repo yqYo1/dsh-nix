@@ -2,7 +2,7 @@
 # Run the pinned, real Home Manager activation regression in a Nix sandbox.
 # Unlike a stub-generated activation snippet, this exercises three actual
 # homeManagerConfiguration activationPackages (gen1 covers agent, extra,
-# tricky names, the lock-bearing codex spec, and the directly declared
+# tricky names and the directly declared
 # user-npm buildNpmPackage profile). Consumer dotfiles are untouched.
 # Nix-CLI profile probes are shimmed inside the check; host profile installation
 # and the packaged dsh runtime are deliberately not claimed by this gate.
