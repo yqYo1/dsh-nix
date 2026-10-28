@@ -139,7 +139,8 @@ let
       pass "parent PATH proven pnpm-free"
       wrapper=${userPkg}/bin/dsh-poc-npm-plugin
       test -x "$wrapper" || fail "buildNpm bin wrapper missing/not executable"
-      head -1 "$wrapper" | grep -q '^#!' || fail "bin wrapper has no shebang line"
+      wrapper_first=$(head -n 1 "$wrapper")
+      case "$wrapper_first" in '#!'*) ;; *) fail "bin wrapper has no shebang line" ;; esac
       run_wrapper() {
         label=$1; shift
         if env -i PATH=${pkgs.nodejs}/bin:/usr/bin:/bin HOME="$HOME" \

@@ -190,22 +190,29 @@
                 expected = builtins.toJSON inBoxNames;
               }
               ''
-                cliDeps=$(jq -r '.dependencies // {} | keys[]' "$src/apps/cli/package.json")
-                actual=$(
+                # Do not pipe a large dependency list into `grep -q`: it exits
+                # on the first match, the writer can receive SIGPIPE, and with
+                # pipefail the condition flips nondeterministically.  Search a
+                # file instead.
+                cliDepsFile="$TMPDIR/cli-deps.txt"
+                jq -r '.dependencies // {} | keys[]' "$src/apps/cli/package.json" > "$cliDepsFile"
+                actualFile="$TMPDIR/actual.txt"
+                (
                   cd "$src"
                   find . -name node_modules -prune -o -name package.json -print | while IFS= read -r p; do
                     name=$(jq -r '.name // empty' "$p" 2>/dev/null) || continue
                     [ -n "$name" ] || continue
-                    if printf '%s\n' "$cliDeps" | grep -qxF "$name" \
+                    if grep -qxF -- "$name" "$cliDepsFile" \
                       && jq -e '((.dsh // {}).bundle // {}).patch != null' "$p" >/dev/null 2>&1; then
                       printf '%s\n' "$name"
                     fi
-                  done | sort
+                  done | sort > "$actualFile"
                 )
-                want=$(printf '%s\n' "$expected" | jq -r '.[]' | sort)
-                if [ "$actual" != "$want" ]; then
+                wantFile="$TMPDIR/want.txt"
+                printf '%s\n' "$expected" | jq -r '.[]' | sort > "$wantFile"
+                if ! cmp -s "$actualFile" "$wantFile"; then
                   echo "official-bundles: by-name set drifted from the installation's shipped bundles" >&2
-                  diff <(printf '%s\n' "$want") <(printf '%s\n' "$actual") >&2 || true
+                  diff -u "$wantFile" "$actualFile" >&2 || true
                   echo "(left: accepted list, right: shipped bundles)" >&2
                   exit 1
                 fi

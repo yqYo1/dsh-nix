@@ -206,7 +206,7 @@ TMPDIR="$HM_E2E_TMP" DSH_HM_E2E_ARTIFACT_DIR="$HM_E2E_TMP/dsh-hm-host-e2e" \
   nix develop ./tests --no-update-lock-file --no-write-lock-file -c bash scripts/hm-e2e.sh
 echo "hm host e2e evidence: $HM_E2E_TMP/dsh-hm-host-e2e"
 
-if git status --porcelain -- flake.nix flake.lock tests/flake.lock | grep -q .; then
+if [ -n "$(git status --porcelain -- flake.nix flake.lock tests/flake.lock)" ]; then
   emit changed true
 else
   emit changed false
