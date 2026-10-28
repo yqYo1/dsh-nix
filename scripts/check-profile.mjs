@@ -14,7 +14,7 @@
  * waived to keep the check green.
  *
  * The sequence mirrors the primary source `apps/cli/src/profile-boot.ts`
- * at pinned dsh-v0.2.1-rc.2 (prepareProfile → composeProfile → runProfile):
+ * at pinned dsh-v0.2.1-rc.3 (prepareProfile → composeProfile → runProfile):
  *   - loadProfile() resolves the profile against the scratch DSH_HOME, then
  *     the profile root cordis.yml is rewritten to the empty entry list
  *     (the Loader anchors baseUrl at it; a Loader write-back must never bake
