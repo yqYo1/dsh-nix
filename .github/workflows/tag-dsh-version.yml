@@ -1,0 +1,36 @@
+# Keep the `dsh-<version>` tag on the current default branch.
+#
+# The repository pins one dsh release at a time; this workflow retags that
+# release to the latest main commit on every push, so `dsh-0.2.1-rc.2` always
+# identifies the default-branch state carrying that dsh version.
+name: tag-dsh-version
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-dsh-version
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Retag the pinned dsh version
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";/\1/p' pkgs/dsh.nix | head -n1)
+          test -n "$version" || { echo "dsh version not found in pkgs/dsh.nix" >&2; exit 1; }
+          tag="dsh-$version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f -a "$tag" -m "dsh $version" "$GITHUB_SHA"
+          git push --force origin "refs/tags/$tag"
