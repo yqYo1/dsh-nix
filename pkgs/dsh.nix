@@ -25,7 +25,7 @@
 }:
 
 let
-  version = "0.2.1-rc.2";
+  version = "0.2.1-rc.3";
   # The dsh client build embeds the source commit into client artifacts by
   # shelling out to `git rev-parse HEAD` (since dsh 0.1.0-rc.8).  The nix
   # build is a gitless tarball with no `git` in the environment, so we feed
