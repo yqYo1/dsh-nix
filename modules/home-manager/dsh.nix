@@ -307,7 +307,7 @@ let
         case "$old" in
           ${lib.concatStringsSep "|" (map lib.escapeShellArg (currentNames ++ [ "" ]))}) : ;; # still declared (or empty line)
           "." | ".." | "node_modules" | "" | *[/\\]*) : ;; # never delete unsafe, reserved, or empty entries
-          *) if printf '%s' "$old" | grep -q '[[:cntrl:]]'; then :; else rm -rf "$HOME/.dsh/profiles/$old"; fi ;;
+          *) if [[ "$old" == *[[:cntrl:]]* ]]; then :; else rm -rf "$HOME/.dsh/profiles/$old"; fi ;;
         esac
       done < "${managedFile}"
     fi
