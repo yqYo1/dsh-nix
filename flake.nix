@@ -33,7 +33,7 @@
   inputs.nixpkgs-fetch.url = "github:NixOS/nixpkgs/a7868a727837f3c09cee2ce0ca671c76b1589fed";
   inputs.systems.url = "github:nix-systems/default";
   inputs.dsh = {
-    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.1-rc.5";
+    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.1";
     flake = false;
   };
 
@@ -64,6 +64,15 @@
       onDemandBundles = [
         "@deepseek-ai/dsh-subagent-codex"
         "@deepseek-ai/dsh-subagent-claude-code"
+        "@deepseek-ai/dsh-cua-bundle"
+      ];
+      # `dsh-cua-bundle` declares platforms = [ "darwin" ]; booting it on
+      # Linux is an upstream-unsupported platform, so the Linux profile boot
+      # check covers the portable pair.  The name still resolves and the
+      # package still builds (official-on-demand checks both).
+      onDemandBootBundles = [
+        "@deepseek-ai/dsh-subagent-codex"
+        "@deepseek-ai/dsh-subagent-claude-code"
       ];
       # The official bundles shipped by the dsh installation: every package
       # under `packages/bundle/` and `packages/experimental/` that declares
@@ -81,6 +90,7 @@
         "@deepseek-ai/dsh-sdk-minimal"
         "@deepseek-ai/dsh-acp-app"
         # Opt-in bundles (upstream OPTIONAL_BUNDLES).
+        "@deepseek-ai/dsh-personalized-recommendations"
         "@deepseek-ai/dsh-experimental-session-search"
         "@deepseek-ai/dsh-experimental-ralph-bundle"
         "@deepseek-ai/dsh-experimental-terminal-bundle"
@@ -93,6 +103,8 @@
         "@deepseek-ai/dsh-experimental-inspector-profile"
         "@deepseek-ai/dsh-experimental-plugin-market-bundle"
         "@deepseek-ai/dsh-experimental-tool-worktree"
+        "@deepseek-ai/dsh-experimental-liveshare"
+        "@deepseek-ai/dsh-experimental-forge-bundle"
       ];
       # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
       # installs one profile per name by default; the bundles come from the
@@ -232,7 +244,7 @@
                 names = builtins.toJSON onDemandBundles;
               }
               ''
-                upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/boot/app-boot/src/official-bundle-packages.ts" \
+                upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/util/official-bundles/src/bundles.ts" \
                   | grep -oE "'@deepseek-ai/[^']+'" | tr -d "'" | sort)
                 want=$(printf '%s\n' "$names" | jq -r '.[]' | sort)
                 if [ "$upstream" != "$want" ]; then
@@ -697,25 +709,28 @@
                 plugins = [
                   "@deepseek-ai/dsh-base"
                   "@deepseek-ai/dsh-web-app"
-                ] ++ onDemandBundles;
+                ] ++ onDemandBootBundles;
                 inherit inBoxNames;
-                installBundles = onDemandBundles;
+                installBundles = onDemandBootBundles;
               };
               artifact = profilesLib.buildProfile { inherit pkgs profile; install = self.packages.${system}.dsh; };
             in
             pkgs.runCommand "dsh-profile-official-on-demand-check"
               {
                 nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                bootBundles = builtins.toJSON onDemandBootBundles;
               }
               ''
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
                 cp -a ${artifact} "$home/profiles/official-on-demand"
                 chmod -R u+w "$home/profiles/official-on-demand"
-                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-subagent-codex", "@deepseek-ai/dsh-subagent-claude-code"]' \
+                want=$(jq -cn --argjson extra "$bootBundles" '["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"] + $extra')
+                jq -e --argjson want "$want" '.dsh.profile.bundles == $want' \
                   "$home/profiles/official-on-demand/package.json" >/dev/null
-                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/package.json"
-                test -f "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/package.json"
+                printf '%s\n' "$bootBundles" | jq -r '.[]' | while IFS= read -r name; do
+                  test -f "$home/profiles/official-on-demand/node_modules/$name/package.json"
+                done
                 test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-codex/node_modules/@openai/codex"
                 test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/node_modules/@anthropic-ai/claude-agent-sdk"
                 if ! ${pkgs.nodejs}/bin/node --expose-internals \
