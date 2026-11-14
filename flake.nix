@@ -33,7 +33,7 @@
   inputs.nixpkgs-fetch.url = "github:NixOS/nixpkgs/a7868a727837f3c09cee2ce0ca671c76b1589fed";
   inputs.systems.url = "github:nix-systems/default";
   inputs.dsh = {
-    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.1";
+    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.2";
     flake = false;
   };
 
@@ -64,15 +64,6 @@
       onDemandBundles = [
         "@deepseek-ai/dsh-subagent-codex"
         "@deepseek-ai/dsh-subagent-claude-code"
-        "@deepseek-ai/dsh-cua-bundle"
-      ];
-      # `dsh-cua-bundle` declares platforms = [ "darwin" ]; booting it on
-      # Linux is an upstream-unsupported platform, so the Linux profile boot
-      # check covers the portable pair.  The name still resolves and the
-      # package still builds (official-on-demand checks both).
-      onDemandBootBundles = [
-        "@deepseek-ai/dsh-subagent-codex"
-        "@deepseek-ai/dsh-subagent-claude-code"
       ];
       # The official bundles shipped by the dsh installation: every package
       # under `packages/bundle/` and `packages/experimental/` that declares
@@ -91,12 +82,12 @@
         "@deepseek-ai/dsh-acp-app"
         # Opt-in bundles (upstream OPTIONAL_BUNDLES).
         "@deepseek-ai/dsh-personalized-recommendations"
+        "@deepseek-ai/dsh-cua-bundle"
         "@deepseek-ai/dsh-experimental-session-search"
         "@deepseek-ai/dsh-experimental-ralph-bundle"
         "@deepseek-ai/dsh-experimental-terminal-bundle"
         "@deepseek-ai/dsh-experimental-badge-skill-bundle"
         "@deepseek-ai/dsh-experimental-session-titles-bundle"
-        "@deepseek-ai/dsh-experimental-agent-team-profile"
         "@deepseek-ai/dsh-experimental-voice-input-bundle"
         "@deepseek-ai/dsh-experimental-cot-translation-bundle"
         "@deepseek-ai/dsh-experimental-auto-review"
@@ -709,16 +700,16 @@
                 plugins = [
                   "@deepseek-ai/dsh-base"
                   "@deepseek-ai/dsh-web-app"
-                ] ++ onDemandBootBundles;
+                ] ++ onDemandBundles;
                 inherit inBoxNames;
-                installBundles = onDemandBootBundles;
+                installBundles = onDemandBundles;
               };
               artifact = profilesLib.buildProfile { inherit pkgs profile; install = self.packages.${system}.dsh; };
             in
             pkgs.runCommand "dsh-profile-official-on-demand-check"
               {
                 nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
-                bootBundles = builtins.toJSON onDemandBootBundles;
+                bootBundles = builtins.toJSON onDemandBundles;
               }
               ''
                 home="$TMPDIR/home"

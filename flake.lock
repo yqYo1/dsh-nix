@@ -3,16 +3,16 @@
     "dsh": {
       "flake": false,
       "locked": {
-        "lastModified": 1793778885,
-        "narHash": "sha256-pzSBQbLwcT/wnCg4ugWq7YmRngCaFOiKVCjekI5aKa0=",
+        "lastModified": 1794364338,
+        "narHash": "sha256-lbRmFifO6+8YKn8kaR7gQzKeUQh9YBFu9wH/dWJ+3MA=",
         "owner": "deepseek-ai",
         "repo": "deepseek-harness",
-        "rev": "66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db",
+        "rev": "ddac96760b6edf8fa0fe17cbdcf0b512f4c12b2c",
         "type": "github"
       },
       "original": {
         "owner": "deepseek-ai",
-        "ref": "dsh-v0.2.2-rc.1",
+        "ref": "dsh-v0.2.2-rc.2",
         "repo": "deepseek-harness",
         "type": "github"
       }

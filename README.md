@@ -1,7 +1,7 @@
 # dsh-nix
 
 Build [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) with Nix and manage profiles and Home Manager configuration declaratively.
-The DSH source is pinned as a flake input; the current package is `0.2.2-rc.1`.
+The DSH source is pinned as a flake input; the current package is `0.2.2-rc.2`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile builder**: composes profiles from bundles, Nix packages, and plugin paths at build time.
@@ -41,12 +41,12 @@ The official installable plugin set is the official bundle set (upstream `PROFIL
   - `@deepseek-ai/dsh-acp-app`
 - **optional bundles** (upstream `OPTIONAL_BUNDLES`, shipped switched off):
   - `@deepseek-ai/dsh-personalized-recommendations`
+  - `@deepseek-ai/dsh-cua-bundle` (macOS only; upstream declares `platforms: ["darwin"]`)
   - `@deepseek-ai/dsh-experimental-session-search`
   - `@deepseek-ai/dsh-experimental-ralph-bundle`
   - `@deepseek-ai/dsh-experimental-terminal-bundle`
   - `@deepseek-ai/dsh-experimental-badge-skill-bundle`
   - `@deepseek-ai/dsh-experimental-session-titles-bundle`
-  - `@deepseek-ai/dsh-experimental-agent-team-profile`
   - `@deepseek-ai/dsh-experimental-voice-input-bundle`
   - `@deepseek-ai/dsh-experimental-cot-translation-bundle`
   - `@deepseek-ai/dsh-experimental-auto-review`
@@ -58,7 +58,6 @@ The official installable plugin set is the official bundle set (upstream `PROFIL
 - **on-demand official bundles** (not installation dependencies; the pinned dsh source builds them and dsh-nix links the installed package, provider binaries included — no npm fetch, version pin, lockfile, or store hash is maintained):
   - `@deepseek-ai/dsh-subagent-codex`
   - `@deepseek-ai/dsh-subagent-claude-code`
-  - `@deepseek-ai/dsh-cua-bundle` (macOS only; upstream declares `platforms: ["darwin"]`)
 
 Optional bundles are installation dependencies, so an in-box name resolves without any profile link.
 On-demand bundles are catalog-only (not installation dependencies), so the built package is linked into the profile when named; without that link dsh would skip the bundle.
