@@ -1,7 +1,7 @@
 # dsh-nix
 
 Build [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) with Nix and manage profiles and Home Manager configuration declaratively.
-The DSH source is pinned as a flake input; the current package is `0.2.2-rc.2`.
+The DSH source is pinned as a flake input; the current package is `0.2.2-rc.3`.
 
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile builder**: composes profiles from bundles, Nix packages, and plugin paths at build time.
@@ -30,7 +30,7 @@ The following forms are accepted, mixed in declaration order:
 
 ### Official bundles
 
-The official installable plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them. The 21 installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
+The official installable plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them. The 22 installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
 
 - **bundles of the shipped profile templates** (upstream `PROFILE_TEMPLATES`, resolved from the installation):
   - `@deepseek-ai/dsh-base`
@@ -55,6 +55,7 @@ The official installable plugin set is the official bundle set (upstream `PROFIL
   - `@deepseek-ai/dsh-experimental-tool-worktree`
   - `@deepseek-ai/dsh-experimental-liveshare`
   - `@deepseek-ai/dsh-experimental-forge-bundle`
+  - `@deepseek-ai/dsh-deepseek-chat-import`
 - **on-demand official bundles** (not installation dependencies; the pinned dsh source builds them and dsh-nix links the installed package, provider binaries included — no npm fetch, version pin, lockfile, or store hash is maintained):
   - `@deepseek-ai/dsh-subagent-codex`
   - `@deepseek-ai/dsh-subagent-claude-code`
