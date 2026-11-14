@@ -33,7 +33,7 @@
   inputs.nixpkgs-fetch.url = "github:NixOS/nixpkgs/a7868a727837f3c09cee2ce0ca671c76b1589fed";
   inputs.systems.url = "github:nix-systems/default";
   inputs.dsh = {
-    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.2";
+    url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.3";
     flake = false;
   };
 
@@ -96,6 +96,7 @@
         "@deepseek-ai/dsh-experimental-tool-worktree"
         "@deepseek-ai/dsh-experimental-liveshare"
         "@deepseek-ai/dsh-experimental-forge-bundle"
+        "@deepseek-ai/dsh-deepseek-chat-import"
       ];
       # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
       # installs one profile per name by default; the bundles come from the
