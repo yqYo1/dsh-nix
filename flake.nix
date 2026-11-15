@@ -244,7 +244,12 @@
                   diff <(printf '%s\n' "$want") <(printf '%s\n' "$upstream") >&2 || true
                   exit 1
                 fi
+                index="$install/share/dsh-nix/bundles.tsv"
+                [ -f "$index" ] || { echo "official-on-demand: installation has no bundle index" >&2; exit 1; }
                 for name in $want; do
+                  indexed=$(awk -F '\t' -v n="$name" '$1 == n { print $2 }' "$index")
+                  [ -n "$indexed" ] && [ -f "$indexed/package.json" ] \
+                    || { echo "official-on-demand: bundle index has no usable entry for $name" >&2; exit 1; }
                   matches=$(find "$install" -path '*/node_modules' -prune -o -name package.json -print \
                     | while IFS= read -r manifest; do
                         if [ "$(jq -r '.name // empty' "$manifest")" = "$name" ]; then
@@ -256,6 +261,8 @@
                     echo "official-on-demand: expected one built source package for $name, found $count" >&2
                     exit 1
                   fi
+                  [ "$indexed" = "$(dirname "$matches")" ] \
+                    || { echo "official-on-demand: bundle index path disagrees for $name" >&2; exit 1; }
                   jq -e '((.dsh // {}).bundle // {}).patch != null' "$matches" >/dev/null \
                     || { echo "official-on-demand: $name declares no dsh.bundle.patch" >&2; exit 1; }
                   main=$(jq -r '.main // empty' "$matches")

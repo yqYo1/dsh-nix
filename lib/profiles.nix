@@ -183,12 +183,25 @@ let
         want=$1
         count=0
         chosen=""
-        while IFS= read -r manifest; do
-          [ -f "$manifest" ] || continue
-          [ "$(jq -r '.name // empty' "$manifest")" = "$want" ] || continue
-          count=$((count + 1))
-          chosen=$(dirname "$manifest")
-        done < <(find "$install" -path '*/node_modules' -prune -o -name package.json -print)
+        # The dsh package emits a name -> package-root index next to its
+        # output.  Prefer it: a full installation walk per bundle made every
+        # consumer profile build I/O-bound (issue #26).  Keep the walk as a
+        # fallback for an installation built before the index existed.
+        index="$install/share/dsh-nix/bundles.tsv"
+        if [ -f "$index" ]; then
+          while IFS=$'\t' read -r name dir; do
+            [ "$name" = "$want" ] || continue
+            count=$((count + 1))
+            chosen=$dir
+          done < "$index"
+        else
+          while IFS= read -r manifest; do
+            [ -f "$manifest" ] || continue
+            [ "$(jq -r '.name // empty' "$manifest")" = "$want" ] || continue
+            count=$((count + 1))
+            chosen=$(dirname "$manifest")
+          done < <(find "$install" -path '*/node_modules' -prune -o -name package.json -print)
+        fi
         if [ "$count" -ne 1 ]; then
           echo "dsh profile: expected exactly one installed package named $want, found $count" >&2
           return 1

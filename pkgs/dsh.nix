@@ -21,6 +21,7 @@
 , makeBinaryWrapper
 , python3
 , node-gyp
+, jq
 , src
 }:
 
@@ -45,7 +46,7 @@ stdenv.mkDerivation {
   pname = "dsh";
   inherit version src;
 
-  nativeBuildInputs = [ nodejs pnpm_11 pnpmConfigHook makeBinaryWrapper python3 node-gyp ];
+  nativeBuildInputs = [ nodejs pnpm_11 pnpmConfigHook makeBinaryWrapper python3 node-gyp jq ];
   inherit pnpmDeps;
   env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
 
@@ -78,6 +79,19 @@ stdenv.mkDerivation {
       "$out/.agents" "$out/.claude" \
       "$out/node_modules/.pnpm/node_modules/@deepseek-ai/website" \
       "$out/node_modules/.cache"
+    # Build a package-name -> package-root index once, as part of the dsh
+    # output.  A profile resolves on-demand bundle names at build time; walking
+    # this 2.5 GiB installation with `find` per bundle made every consumer
+    # profile build I/O-bound (issue #26).  The index is generated here, so a
+    # cached dsh output carries it and profile builds only read one small file.
+    mkdir -p "$out/share/dsh-nix"
+    find "$out" -path '*/node_modules' -prune -o -name package.json -print \
+      | while IFS= read -r manifest; do
+          name=$(jq -r '.name // empty' "$manifest" 2>/dev/null) || continue
+          [ -n "$name" ] || continue
+          printf '%s\t%s\n' "$name" "$(dirname "$manifest")"
+        done \
+      | sort -u > "$out/share/dsh-nix/bundles.tsv"
     mkdir -p "$out/bin"
     # Node builtin compat (introduced with rc.2): ship the
     # narrowly-triggered
