@@ -314,6 +314,8 @@ let
       dir = profileDir name;
       stamp = stampFile name;
       artifactString = toString artifact;
+      stagingTemplate = "\"$HOME/.dsh/profiles\"/" + lib.escapeShellArg ("." + name + ".staging.XXXXXX");
+      previous = "\"$HOME/.dsh/profiles\"/" + lib.escapeShellArg ("." + name + ".previous");
     in
     ''
       if [ -f ${stamp} ] && [ "$(cat ${stamp})" = ${lib.escapeShellArg artifactString} ]; then
@@ -325,12 +327,35 @@ let
           echo "dshProfiles: refusing to write through symlinked stamp ${stamp}" >&2
           exit 1
         fi
-        rm -rf ${dir}
-        mkdir -p ${dir} 
-        cp -a ${lib.escapeShellArg artifactString}/. ${dir}/
+        # A previous interrupted replacement may have moved the old profile
+        # aside; restore it before starting a new replacement.
+        if [ ! -e ${dir} ] && [ -e ${previous} ]; then
+          mv ${previous} ${dir}
+        fi
+        rm -rf ${previous}
+        mkdir -p "$HOME/.dsh/profiles"
+        stage=$(mktemp -d ${stagingTemplate})
+        if ! cp -a ${lib.escapeShellArg artifactString}/. "$stage"/; then
+          rm -rf "$stage"
+          exit 1
+        fi
         # cp -a syncs the destination directory attributes (read-only store
         # modes) too; dsh rewrites the profile root cordis.yml on every boot.
-        chmod -R u+w ${dir}
+        if ! chmod -R u+w "$stage"; then
+          rm -rf "$stage"
+          exit 1
+        fi
+        if [ -e ${dir} ] || [ -L ${dir} ]; then
+          mv ${dir} ${previous}
+        fi
+        if ! mv "$stage" ${dir}; then
+          if [ -e ${previous} ]; then
+            mv ${previous} ${dir}
+          fi
+          rm -rf "$stage"
+          exit 1
+        fi
+        rm -rf ${previous}
         printf '%s' ${lib.escapeShellArg artifactString} > ${stamp}
       fi
     '';
