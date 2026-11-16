@@ -46,6 +46,8 @@
   profilesLib,
   inBoxNames,
   dshSrc,
+  buildPkgsFor,
+  dshPackageFor ? (_: null),
   profileTemplates ? [ ],
   onDemandBundles ? [ ],
   fetchPnpmDepsFor ? (_: null),
@@ -60,6 +62,8 @@
 
 let
   cfg = config.programs.dsh;
+  buildPkgs = buildPkgsFor pkgs.stdenv.hostPlatform.system;
+  dshPackage = dshPackageFor pkgs.stdenv.hostPlatform.system;
 
   # Built-in template profiles and user-defined profiles are separate.
   # Enabling a template installs a profile of that name; a user profile with
@@ -252,7 +256,7 @@ let
   artifacts = lib.mapAttrs (
     _name: declaration:
     profilesLib.buildProfile {
-      inherit pkgs;
+      pkgs = buildPkgs;
       profile = declaration;
       install = cfg.package;
     }
@@ -408,12 +412,15 @@ in
     package = lib.mkOption {
       type = lib.types.package;
       default =
-        let
-          fetcher = fetchPnpmDepsFor pkgs.stdenv.hostPlatform.system;
-        in
-        pkgs.dsh or (pkgs.callPackage ../../pkgs/dsh.nix (
-          { src = dshSrc; } // lib.optionalAttrs (fetcher != null) { fetchPnpmDeps = fetcher; }
-        ));
+        if dshPackage != null then
+          dshPackage
+        else
+          let
+            fetcher = fetchPnpmDepsFor buildPkgs.stdenv.hostPlatform.system;
+          in
+          buildPkgs.callPackage ../../pkgs/dsh.nix (
+            { src = dshSrc; } // lib.optionalAttrs (fetcher != null) { fetchPnpmDeps = fetcher; }
+          );
       defaultText = "pkgs.dsh (via inputs.dsh-nix.overlays.default) or the bundled callPackage build with the pinned pnpm-deps fetch support";
       description = "The dsh CLI package to install. Keep it the unwrapped dsh installation: template profiles read PROFILE_TEMPLATES from it and on-demand bundles link its source tree.";
     };

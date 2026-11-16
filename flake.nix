@@ -123,6 +123,8 @@
           profileTemplates
           onDemandBundles
           ;
+        buildPkgsFor = system: nixpkgs.legacyPackages.${system};
+        dshPackageFor = system: self.packages.${system}.dsh;
         dshSrc = dsh;
         inherit fetchPnpmDepsFor;
       };

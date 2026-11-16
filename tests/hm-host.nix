@@ -53,6 +53,7 @@ let
       inBoxNames
       dshSrc
       ;
+    buildPkgsFor = _: pkgs;
   };
 
   # Real third-party plugin packaged as a Nix derivation (the user route):
