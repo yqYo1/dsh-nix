@@ -691,12 +691,11 @@
               '';
 
           # A real third-party plugin packaged as a Nix derivation (the user
-          # route): the fixture builds dsh-codex from a pinned closure and the
-          # profile links it like any Nix plugin; no profile-level spec/hash
-          # API is involved.
+          # route): the user-npm fixture is a real buildNpmPackage derivation
+          # with a manifest bundle; the profile links it like any Nix plugin.
           profile-nix-plugin =
             let
-              plugin = import ./tests/fixtures/codex-plugin.nix { inherit pkgs; };
+              plugin = import ./tests/fixtures/user-npm-plugin.nix { inherit pkgs; };
               profile = profilesLib.mkProfile {
                 name = "nix-plugin";
                 plugins = [
@@ -704,15 +703,7 @@
                   "@deepseek-ai/dsh-web-app"
                   plugin
                 ];
-                userPatches = [
-                  {
-                    id = "llm-openai-codex";
-                    config = {
-                      searchMode = "live";
-                      useNativeCompaction = true;
-                    };
-                  }
-                ];
+                userPatches = [ ];
                 inherit inBoxNames;
               };
               artifact = profilesLib.buildProfile { inherit pkgs profile; };
@@ -725,11 +716,9 @@
                 ];
               }
               ''
-                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
+                jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@dsh-poc/user-npm-plugin"]' \
                   ${artifact}/package.json >/dev/null
-                test -L ${artifact}/node_modules/dsh-codex
-                jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live"' \
-                  ${artifact}/cordis.patch.yml >/dev/null
+                test -L ${artifact}/node_modules/@dsh-poc/user-npm-plugin
                 home="$TMPDIR/home"
                 mkdir -p "$home/profiles"
                 cp -a ${artifact} "$home/profiles/nix-plugin"
