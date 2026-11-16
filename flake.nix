@@ -65,57 +65,27 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
+      officialBundles = import ./lib/official-bundles.nix;
+
       # The official on-demand bundles are not installation dependencies, but
       # the pinned dsh source still contains and builds them.  Profile builds
       # link the installed package directly, so no npm fetch, version pin,
       # lockfile, or pnpm-store hash is maintained separately.
-      onDemandBundles = [
-        "@deepseek-ai/dsh-subagent-codex"
-        "@deepseek-ai/dsh-subagent-claude-code"
-      ];
-      # The official bundles shipped by the dsh installation: every package
-      # under `packages/bundle/` and `packages/experimental/` that declares
-      # `dsh.bundle.patch`.  Names resolve from the installation at runtime —
-      # users reference them bare, with nothing to package.  Mirrors upstream
-      # `PROFILE_TEMPLATES` bundles plus `OPTIONAL_BUNDLES` (shipped switched
-      # off, offered by the plugin manager).  The
-      # `official-bundles` check fails on drift with the pinned dsh source.
-      inBoxNames = [
-        # Bundles of the shipped profile templates (`PROFILE_TEMPLATES`).
-        "@deepseek-ai/dsh-base"
-        "@deepseek-ai/dsh-web-app"
-        "@deepseek-ai/dsh-headless"
-        "@deepseek-ai/dsh-sdk-app"
-        "@deepseek-ai/dsh-sdk-minimal"
-        "@deepseek-ai/dsh-acp-app"
-        # Opt-in bundles (upstream OPTIONAL_BUNDLES).
-        "@deepseek-ai/dsh-personalized-recommendations"
-        "@deepseek-ai/dsh-cua-bundle"
-        "@deepseek-ai/dsh-experimental-session-search"
-        "@deepseek-ai/dsh-experimental-ralph-bundle"
-        "@deepseek-ai/dsh-experimental-terminal-bundle"
-        "@deepseek-ai/dsh-experimental-badge-skill-bundle"
-        "@deepseek-ai/dsh-experimental-session-titles-bundle"
-        "@deepseek-ai/dsh-experimental-voice-input-bundle"
-        "@deepseek-ai/dsh-experimental-cot-translation-bundle"
-        "@deepseek-ai/dsh-experimental-auto-review"
-        "@deepseek-ai/dsh-experimental-inspector-profile"
-        "@deepseek-ai/dsh-experimental-plugin-market-bundle"
-        "@deepseek-ai/dsh-experimental-tool-worktree"
-        "@deepseek-ai/dsh-experimental-liveshare"
-        "@deepseek-ai/dsh-experimental-forge-bundle"
-        "@deepseek-ai/dsh-deepseek-chat-import"
-      ];
+      onDemandBundles = officialBundles.onDemand;
+
+      # The official bundles shipped by the dsh installation: every bundle in
+      # the shipped profile templates plus the shipped optional bundles.
+      # Mirrors upstream PROFILE_TEMPLATES + OPTIONAL_BUNDLES; the
+      # `official-bundles` check fails on drift with the pinned source.
+      inBoxNames = lib.unique (
+        lib.concatLists (lib.attrValues officialBundles.profileTemplates) ++ officialBundles.optional
+      );
+
       # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
       # installs one profile per name by default; the bundles come from the
       # dsh installation at build time, never from user configuration.
-      profileTemplates = [
-        "acp"
-        "headless"
-        "sdk"
-        "sdk-minimal"
-        "web"
-      ];
+      profileTemplates = lib.attrNames officialBundles.profileTemplates;
+
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         inherit
           profilesLib
@@ -144,6 +114,7 @@
         lib
         plugins
         profilesLib
+        officialBundles
         homeManagerModules
         ;
       inherit overlay;
