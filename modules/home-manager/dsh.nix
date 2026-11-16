@@ -206,6 +206,8 @@ let
       "sets extraPlugins without extends; use plugins for a custom profile"
     else if p.extends == null && p.plugins == null then
       "must set plugins (custom profile) or extends (template profile)"
+    else if p.extends == null && p.plugins == [ ] then
+      "plugins must not be empty; disable the profile instead"
     else
       null;
 
@@ -275,24 +277,10 @@ let
   # single double-quoted string: that helper emits single-quoted literals
   # ('web'), which are literal quote characters once wrapped in double
   # quotes ("$HOME/.../'web'").
-  invalidNameReason =
-    name:
-    if name == "" then
-      "must not be empty"
-    else if name == "." || name == ".." then
-      "must not be ${builtins.toJSON name}"
-    else if name == "node_modules" then
-      "is reserved"
-    else if builtins.match ".*[\\/].*" name != null then
-      "must not contain '/' or '\\'"
-    else if builtins.match ".*[[:cntrl:]].*" name != null then
-      "must not contain control characters"
-    else
-      null;
   checkedArtifacts = lib.mapAttrs (
     name: artifact:
     let
-      reason = invalidNameReason name;
+      reason = profilesLib.invalidNameReason name;
     in
     if reason == null then
       artifact
