@@ -1,7 +1,7 @@
 # Deterministic CI for work branches: pinned Nix, immutable inputs, real checks.
 #
-# Runs on pull requests and on pushes to any branch EXCEPT main (main moves
-# only through reviewed merges, so CI belongs on the branch/PR side).
+# Runs on pull requests and on every push, including main.  Main must carry
+# the same gates as the PR so a post-merge regression is caught immediately.
 # The gates run strictly in sequence in ONE job (no continue-on-error, no
 # masked gates — a red gate stops everything after it):
 #   1. root `nix flake check` (HM-independent: profile artifact shape
@@ -20,8 +20,6 @@ name: ci
 on:
   pull_request:
   push:
-    branches-ignore:
-      - main
 
 permissions:
   contents: read
@@ -99,3 +97,21 @@ jobs:
           nix develop ./tests --no-update-lock-file --no-write-lock-file --accept-flake-config -c bash scripts/hm-e2e.sh
           echo "--- hm host e2e evidence (safe listing, no secrets) ---"
           find "${DSH_HM_E2E_ARTIFACT_DIR}" -maxdepth 2 | sort
+
+  aarch64-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.4.0 # 11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Evaluate aarch64-linux checks
+        run: |
+          set -euo pipefail
+          nix flake check --no-build --no-update-lock-file --no-write-lock-file --accept-flake-config --system aarch64-linux
