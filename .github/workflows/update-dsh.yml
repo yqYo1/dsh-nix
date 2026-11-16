@@ -76,15 +76,33 @@ jobs:
           # Any other lookup error stops the run BEFORE unsigned push/PR
           # instead of assuming signatures are disabled.
           err_file="$(mktemp)"
-          if required=$(gh api "repos/${GH_REPO}/branches/main/protection" \
+          required=false
+          # Legacy branch protection and repository rulesets are separate
+          # APIs; a 404 from the legacy endpoint does not mean signatures are
+          # disabled when a ruleset enforces them.
+          if legacy=$(gh api "repos/${GH_REPO}/branches/main/protection" \
             --jq '.required_signatures.enabled // false' 2>"$err_file"); then
-            :
-          elif grep -qi 'branch not protected' "$err_file"; then
-            # No protection at all: signatures cannot be required.
-            required=false
-          else
+            required="$legacy"
+          elif ! grep -qi 'branch not protected' "$err_file"; then
             cat "$err_file" >&2
             echo "::error::branch-protection lookup failed (auth/API error); refusing to assume signatures are disabled — stopping before push/PR." >&2
+            exit 1
+          fi
+          if rulesets=$(gh api "repos/${GH_REPO}/rulesets" --jq '.[].id' 2>"$err_file"); then
+            for ruleset in $rulesets; do
+              if ! ruleset_json=$(gh api "repos/${GH_REPO}/rulesets/${ruleset}" 2>>"$err_file"); then
+                cat "$err_file" >&2
+                echo "::error::ruleset ${ruleset} lookup failed; refusing to assume signatures are disabled — stopping before push/PR." >&2
+                exit 1
+              fi
+              if printf '%s' "$ruleset_json" \
+                | jq -e '.rules[]? | select(.type == "required_signatures")' >/dev/null; then
+                required=true
+              fi
+            done
+          else
+            cat "$err_file" >&2
+            echo "::error::ruleset lookup failed (auth/API error); refusing to assume signatures are disabled — stopping before push/PR." >&2
             exit 1
           fi
           echo "required=${required}" >> "$GITHUB_OUTPUT"
@@ -129,7 +147,11 @@ jobs:
             git checkout -b "$BRANCH"
           fi
           git add flake.nix flake.lock tests/flake.lock
-          git commit -m "chore(dsh): retarget input to ${TAG} (${SHA:0:12}, version ${VER})" || true
+          if git diff --cached --quiet; then
+            echo "no updater changes to commit" >&2
+            exit 1
+          fi
+          git commit -m "chore(dsh): retarget input to ${TAG} (${SHA:0:12}, version ${VER})"
           # Explicit refspec: only the updater branch moves. No --force.
           git push origin "HEAD:refs/heads/${BRANCH}"
           if gh pr list --head "$BRANCH" --json number --jq -e '.[0].number' >/dev/null; then
