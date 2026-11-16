@@ -32,6 +32,10 @@
   # `follows` to this input — that reintroduces the fixed-output mismatch.
   inputs.nixpkgs-fetch.url = "github:NixOS/nixpkgs/a7868a727837f3c09cee2ce0ca671c76b1589fed";
   inputs.systems.url = "github:nix-systems/default";
+  inputs.treefmt-nix = {
+    url = "github:numtide/treefmt-nix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
   inputs.dsh = {
     url = "github:deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.3";
     flake = false;
@@ -43,17 +47,21 @@
       nixpkgs,
       nixpkgs-fetch,
       systems,
+      treefmt-nix,
       dsh,
     }:
     let
-      lib = nixpkgs.lib;
+      inherit (nixpkgs) lib;
       supportedSystems = import systems;
-      forAllSystems = f: lib.genAttrs supportedSystems (system: f system);
+      forAllSystems = f: lib.genAttrs supportedSystems f;
+      treefmtEval = forAllSystems (
+        system: treefmt-nix.lib.evalModule nixpkgs.legacyPackages.${system} ./treefmt.nix
+      );
 
       # The one fetch support every dsh build uses.  The pnpm-deps FOD's
       # hash is bound to `fetchPnpmDeps`' script text, so it must never be
       # instantiated from a consumer-mutable nixpkgs (issue #10).
-      fetchPnpmDepsFor = system: (nixpkgs-fetch.legacyPackages.${system}).fetchPnpmDeps;
+      fetchPnpmDepsFor = system: nixpkgs-fetch.legacyPackages.${system}.fetchPnpmDeps;
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
@@ -101,10 +109,20 @@
       # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
       # installs one profile per name by default; the bundles come from the
       # dsh installation at build time, never from user configuration.
-      profileTemplates = [ "acp" "headless" "sdk" "sdk-minimal" "web" ];
+      profileTemplates = [
+        "acp"
+        "headless"
+        "sdk"
+        "sdk-minimal"
+        "web"
+      ];
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
-        pluginsLib = plugins;
-        inherit profilesLib inBoxNames profileTemplates onDemandBundles;
+        inherit
+          profilesLib
+          inBoxNames
+          profileTemplates
+          onDemandBundles
+          ;
         dshSrc = dsh;
         inherit fetchPnpmDepsFor;
       };
@@ -112,7 +130,7 @@
       # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
       # built from the pinned fetch support so this path keeps the hash
       # valid under consumer nixpkgs overrides.
-      overlay = final: prev: {
+      overlay = final: _prev: {
         dsh = final.callPackage ./pkgs/dsh.nix {
           src = dsh;
           fetchPnpmDeps = fetchPnpmDepsFor final.stdenv.hostPlatform.system;
@@ -132,7 +150,7 @@
 
       # Convenience: importing this NixOS module wires the overlay into
       # nixpkgs, so `pkgs.dsh` resolves everywhere on the system.
-      nixosModules.default = { config, lib, ... }: {
+      nixosModules.default = _: {
         nixpkgs.overlays = [ overlay ];
       };
 
@@ -154,6 +172,8 @@
         }
       );
 
+      formatter = forAllSystems (system: treefmtEval.${system}.config.build.wrapper);
+
       checks = forAllSystems (
         system:
         let
@@ -162,7 +182,10 @@
             inherit pkgs;
             profile = profilesLib.mkProfile {
               name = "web";
-              plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
+              plugins = [
+                "@deepseek-ai/dsh-base"
+                "@deepseek-ai/dsh-web-app"
+              ];
               inherit inBoxNames;
             };
           };
@@ -170,12 +193,19 @@
             inherit pkgs;
             profile = profilesLib.mkProfile {
               name = "headless";
-              plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-headless" ];
+              plugins = [
+                "@deepseek-ai/dsh-base"
+                "@deepseek-ai/dsh-headless"
+              ];
               inherit inBoxNames;
             };
           };
         in
         {
+          # treefmt-nix: Nix/shell/JS/YAML/Markdown formatting; shellcheck,
+          # actionlint, statix and deadnix are configured in treefmt.nix.
+          treefmt = treefmtEval.${system}.config.build.check self;
+
           # Official-bundle drift guard: the accepted by-name set must equal
           # every bundle the installation ships.  The rule mirrors the
           # plugin-manager's own `shipped` computation: a package is an
@@ -327,7 +357,10 @@
           profile-templates =
             pkgs.runCommand "dsh-profile-templates-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
                 install = self.packages.${system}.dsh;
                 names = builtins.toJSON profileTemplates;
                 shipped = builtins.toJSON inBoxNames;
@@ -369,7 +402,10 @@
             in
             pkgs.runCommand "dsh-profile-template-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
               }
               ''
                 expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
@@ -407,7 +443,10 @@
                 userPatches = [
                   {
                     insert = [
-                      { id = "str-replace-editor"; name = "@deepseek-ai/dsh-tool-str-replace-editor"; }
+                      {
+                        id = "str-replace-editor";
+                        name = "@deepseek-ai/dsh-tool-str-replace-editor";
+                      }
                     ];
                   }
                 ];
@@ -420,7 +459,10 @@
             in
             pkgs.runCommand "dsh-profile-template-extension-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
               }
               ''
                 expected=$(node --expose-internals --require ${self.packages.${system}.dsh}/lib/dsh-builtin-compat.cjs \
@@ -453,11 +495,12 @@
 
           # Genuine user-declared buildNpmPackage regression: the raw
           # derivation goes straight into `plugins` (no installedRoot selectors).
-          profile-user-npm = (import ./tests/user-npm.nix {
-            inherit pkgs;
-            dshPackage = self.packages.${system}.dsh;
-            checker = ./scripts/check-profile.mjs;
-          }).check;
+          profile-user-npm =
+            (import ./tests/user-npm.nix {
+              inherit pkgs;
+              dshPackage = self.packages.${system}.dsh;
+              checker = ./scripts/check-profile.mjs;
+            }).check;
 
           boot-checker-wiring = import ./tests/boot-checker.nix { inherit pkgs; };
 
@@ -552,7 +595,10 @@
             in
             pkgs.runCommand "dsh-profile-boot-experimental-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
               }
               ''
                 home="$TMPDIR/home"
@@ -610,7 +656,10 @@
             in
             pkgs.runCommand "dsh-profile-official-plugin-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
               }
               ''
                 home="$TMPDIR/home"
@@ -653,7 +702,10 @@
                 userPatches = [
                   {
                     id = "llm-openai-codex";
-                    config = { searchMode = "live"; useNativeCompaction = true; };
+                    config = {
+                      searchMode = "live";
+                      useNativeCompaction = true;
+                    };
                   }
                 ];
                 inherit inBoxNames;
@@ -662,7 +714,10 @@
             in
             pkgs.runCommand "dsh-profile-nix-plugin-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
               }
               ''
                 jq -e '.dsh.profile.bundles == ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-codex"]' \
@@ -701,15 +756,22 @@
                 plugins = [
                   "@deepseek-ai/dsh-base"
                   "@deepseek-ai/dsh-web-app"
-                ] ++ onDemandBundles;
+                ]
+                ++ onDemandBundles;
                 inherit inBoxNames;
                 installBundles = onDemandBundles;
               };
-              artifact = profilesLib.buildProfile { inherit pkgs profile; install = self.packages.${system}.dsh; };
+              artifact = profilesLib.buildProfile {
+                inherit pkgs profile;
+                install = self.packages.${system}.dsh;
+              };
             in
             pkgs.runCommand "dsh-profile-official-on-demand-check"
               {
-                nativeBuildInputs = [ pkgs.nodejs pkgs.jq ];
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.jq
+                ];
                 bootBundles = builtins.toJSON onDemandBundles;
               }
               ''
@@ -786,6 +848,7 @@
               nodejs
               pnpm_11
               yq-go
+              treefmtEval.${system}.config.build.wrapper
             ];
           };
         }

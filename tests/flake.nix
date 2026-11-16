@@ -21,18 +21,17 @@
 
   outputs =
     {
-      self,
       dsh-nix,
       nixpkgs,
       home-manager,
       ...
     }:
     let
-      lib = nixpkgs.lib;
+      inherit (nixpkgs) lib;
       # Supported systems always track the parent flake — no flake-utils,
       # no independent systems pin.
       supportedSystems = import dsh-nix.inputs.systems;
-      forAllSystems = f: lib.genAttrs supportedSystems (system: f system);
+      forAllSystems = f: lib.genAttrs supportedSystems f;
     in
     {
       checks = forAllSystems (
@@ -48,13 +47,18 @@
           # imports would escape the flake boundary under pure evaluation.
           # Importing the identical file via the path input keeps every
           # relative import inside the parent tree.
-          home-manager-integration = (import (dsh-nix.outPath + "/tests/hm-real.nix") {
-            inherit pkgs;
-            hmPath = home-manager;
-          }).check;
+          home-manager-integration =
+            (import (dsh-nix.outPath + "/tests/hm-real.nix") {
+              inherit pkgs;
+              hmPath = home-manager;
+            }).check;
 
           test-flake-contract = import ./test-flake-contract.nix {
-            inherit pkgs lib system nixpkgs;
+            inherit
+              pkgs
+              lib
+              system
+              ;
             dshNix = dsh-nix;
             rootSrc = dsh-nix.outPath;
             testsLock = builtins.fromJSON (builtins.readFile ./flake.lock);

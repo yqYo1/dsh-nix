@@ -1,4 +1,4 @@
-{ lib }:
+_:
 
 let
   mkBundle =
@@ -34,7 +34,8 @@ let
       # error to buildProfile, which reads package.json at build time.
       checkedPackageName =
         if resolvedPackageName == null || resolvedPackageName == "" then
-          if manifest == null then null
+          if manifest == null then
+            null
           else
             throw "dsh bundle: packageName is required (set it explicitly or provide package.json name)"
         else
@@ -46,9 +47,12 @@ let
       # so the build sandbox can see it; relative strings stay verbatim as
       # package-relative manifest values.
       explicitPatch =
-        if patchPath == null then null
-        else if builtins.isPath patchPath then builtins.path { path = patchPath; }
-        else patchPath;
+        if patchPath == null then
+          null
+        else if builtins.isPath patchPath then
+          builtins.path { path = patchPath; }
+        else
+          patchPath;
       resolvedPatchPath = if explicitPatch != null then explicitPatch else declaredPatch;
     in
     {

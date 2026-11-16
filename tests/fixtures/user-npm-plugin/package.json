@@ -9,7 +9,15 @@
     "./package.json": "./package.json",
     "./plugin": "./lib/plugin.mjs"
   },
-  "bin": { "dsh-poc-npm-plugin": "./lib/bin.js" },
-  "dependencies": { "is-odd": "3.0.1" },
-  "dsh": { "bundle": { "patch": "cordis.patch.yml" } }
+  "bin": {
+    "dsh-poc-npm-plugin": "./lib/bin.js"
+  },
+  "dependencies": {
+    "is-odd": "3.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    }
+  }
 }

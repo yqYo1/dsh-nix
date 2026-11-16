@@ -223,7 +223,7 @@ let
         cp package.json "$out/package.json"
         cp /build/direct-specs.json "$out/direct-specs.json"
         if [ -n ${if specsLock == null then ''""'' else lockArg} ]; then
-          cp ${if specsLock == null then ''/dev/null'' else lockArg} "$out/pnpm-lock.yaml"
+          cp ${if specsLock == null then "/dev/null" else lockArg} "$out/pnpm-lock.yaml"
         else
           if [ -f pnpm-lock.yaml ]; then cp pnpm-lock.yaml "$out/pnpm-lock.yaml"; fi
         fi

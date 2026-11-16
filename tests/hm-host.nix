@@ -28,19 +28,19 @@
 # appends `activated` and whose dispose appends `disposed` to
 # $DSH_HOME/dsh-nix-lifecycle.log.
 #
-{ pkgsPath
-, hmPath
-, dshSrc
-, system
-, username
-, homeDirectory
+{
+  pkgsPath,
+  hmPath,
+  dshSrc,
+  system,
+  username,
+  homeDirectory,
 }:
 
 let
   pkgs = import pkgsPath { inherit system; };
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
   hmLib = import (hmPath + "/lib") { inherit lib; };
-  pluginsLib = import ../lib/plugins.nix { inherit lib; };
   profilesLib = import ../lib/profiles.nix { inherit lib; };
   inBoxNames = [
     "@deepseek-ai/dsh-base"
@@ -48,7 +48,11 @@ let
     "@deepseek-ai/dsh-headless"
   ];
   dshModule = import ../modules/home-manager/dsh.nix {
-    inherit pluginsLib profilesLib inBoxNames dshSrc;
+    inherit
+      profilesLib
+      inBoxNames
+      dshSrc
+      ;
   };
 
   # Real third-party plugin packaged as a Nix derivation (the user route):
@@ -56,11 +60,18 @@ let
   # the derivation directly in `plugins`.
   codexPlugin = import ./fixtures/codex-plugin.nix { inherit pkgs; };
   codexDecl = {
-    plugins = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" codexPlugin ];
+    plugins = [
+      "@deepseek-ai/dsh-base"
+      "@deepseek-ai/dsh-web-app"
+      codexPlugin
+    ];
     userPatches = [
       {
         id = "llm-openai-codex";
-        config = { searchMode = "live"; useNativeCompaction = true; };
+        config = {
+          searchMode = "live";
+          useNativeCompaction = true;
+        };
       }
     ];
   };
@@ -110,39 +121,57 @@ let
 
   evaluated = hmLib.homeManagerConfiguration {
     inherit pkgs;
-    modules = [ dshModule userModule ];
+    modules = [
+      dshModule
+      userModule
+    ];
   };
 
-  config = evaluated.config;
+  inherit (evaluated) config;
   activationValue = config.home.activation.dshProfiles;
   activationScript =
     if builtins.isString activationValue then activationValue else activationValue.data;
 
   # Expected immutable profile artifact, as a store-path STRING only
   # (toString never realises: no build happens in this evaluation).
-  expectedAgentArtifact = toString (profilesLib.buildProfile {
-    inherit pkgs;
-    profile = profilesLib.mkProfile ({
-      name = "agent";
-      inherit inBoxNames;
-    } // agentDecl);
-  });
-  expectedCodexArtifact = toString (profilesLib.buildProfile {
-    inherit pkgs;
-    profile = profilesLib.mkProfile ({
-      name = "codex";
-      inherit inBoxNames;
-    } // codexDecl);
-  });
+  expectedAgentArtifact = toString (
+    profilesLib.buildProfile {
+      inherit pkgs;
+      profile = profilesLib.mkProfile (
+        {
+          name = "agent";
+          inherit inBoxNames;
+        }
+        // agentDecl
+      );
+    }
+  );
+  expectedCodexArtifact = toString (
+    profilesLib.buildProfile {
+      inherit pkgs;
+      profile = profilesLib.mkProfile (
+        {
+          name = "codex";
+          inherit inBoxNames;
+        }
+        // codexDecl
+      );
+    }
+  );
   # Expected immutable user-npm artifact, built from THE SAME module
   # declaration above (store-path string only, same as above).
-  expectedUserNpmArtifact = toString (profilesLib.buildProfile {
-    inherit pkgs;
-    profile = profilesLib.mkProfile ({
-      name = "user-npm";
-      inherit inBoxNames;
-    } // userNpmDecl);
-  });
+  expectedUserNpmArtifact = toString (
+    profilesLib.buildProfile {
+      inherit pkgs;
+      profile = profilesLib.mkProfile (
+        {
+          name = "user-npm";
+          inherit inBoxNames;
+        }
+        // userNpmDecl
+      );
+    }
+  );
 in
 {
   generation = config.home.activationPackage;
@@ -164,9 +193,7 @@ in
     packageExact = builtins.elem config.programs.dsh.package config.home.packages;
     # Side-effecting block ordered after writeBoundary under the real HM DAG
     # (a dependency cycle would abort while forcing activationPackage).
-    dagOrdered =
-      builtins.isAttrs activationValue
-      && activationValue.after == [ "writeBoundary" ];
+    dagOrdered = builtins.isAttrs activationValue && activationValue.after == [ "writeBoundary" ];
     layoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/agent" activationScript;
     userNpmLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/user-npm" activationScript;
     codexLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/codex" activationScript;

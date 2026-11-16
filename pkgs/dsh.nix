@@ -12,16 +12,17 @@
 # - `dsh plugin` forwards to pnpm on PATH (default command `pnpm`), so the
 #   wrapper prefixes a private pnpm_11 (matching upstream packageManager
 #   pnpm@11) plus nodejs for child execution. HM `cfg.package` is untouched.
-{ lib
-, stdenv
-, nodejs
-, pnpm_11
-, pnpmConfigHook
-, fetchPnpmDeps
-, makeBinaryWrapper
-, python3
-, node-gyp
-, src
+{
+  lib,
+  stdenv,
+  nodejs,
+  pnpm_11,
+  pnpmConfigHook,
+  fetchPnpmDeps,
+  makeBinaryWrapper,
+  python3,
+  node-gyp,
+  src,
 }:
 
 let
@@ -31,9 +32,7 @@ let
   # build is a gitless tarball with no `git` in the environment, so we feed
   # the pinned rev instead — the dsh build script honours
   # DSH_CLIENT_COMMIT_HASH and skips the git call entirely.
-  dshCommitHash = if src ? rev
-    then src.rev
-    else throw "dsh.nix: source has no .rev to embed as DSH_CLIENT_COMMIT_HASH";
+  dshCommitHash = src.rev or (throw "dsh.nix: source has no .rev to embed as DSH_CLIENT_COMMIT_HASH");
   pnpmDeps = fetchPnpmDeps {
     pname = "deepseek-harness";
     inherit version src;
@@ -45,7 +44,14 @@ stdenv.mkDerivation {
   pname = "dsh";
   inherit version src;
 
-  nativeBuildInputs = [ nodejs pnpm_11 pnpmConfigHook makeBinaryWrapper python3 node-gyp ];
+  nativeBuildInputs = [
+    nodejs
+    pnpm_11
+    pnpmConfigHook
+    makeBinaryWrapper
+    python3
+    node-gyp
+  ];
   inherit pnpmDeps;
   env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
 
@@ -88,7 +94,12 @@ stdenv.mkDerivation {
       --add-flags "--expose-internals" \
       --add-flags "--require $out/lib/dsh-builtin-compat.cjs" \
       --add-flags "$out/apps/cli/lib/bin.js" \
-      --prefix PATH : "${lib.makeBinPath [ pnpm_11 nodejs ]}" \
+      --prefix PATH : "${
+        lib.makeBinPath [
+          pnpm_11
+          nodejs
+        ]
+      }" \
       --append-flags ""
     runHook postInstall
   '';

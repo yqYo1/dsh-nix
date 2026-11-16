@@ -110,7 +110,7 @@ case "$HOME" in "$scratch"/*) ;; *)
   exit 2
   ;;
 esac
-[[ "$HOME" != "$outer_home" ]] || {
+[[ $HOME != "$outer_home" ]] || {
   echo "hm host e2e: refusing to run against the real HOME" >&2
   exit 2
 }
@@ -123,7 +123,7 @@ fail() {
   exit 1
 }
 reap_child() {
-  if [[ -n "${child:-}" ]]; then
+  if [[ -n ${child:-} ]]; then
     if kill -0 "$child" 2>/dev/null; then
       kill -TERM "$child" 2>/dev/null || true
       for _ in $(seq 1 50); do
@@ -152,7 +152,7 @@ verify_post_guards() {
 cleanup() {
   rc=$?
   reap_child
-  if ((activation_attempted)) && [[ -f "${guard_before:-}" ]] && [[ ! -f "${guard_after:-}" ]]; then
+  if ((activation_attempted)) && [[ -f ${guard_before:-} ]] && [[ ! -f ${guard_after:-} ]]; then
     # Activation/boot failed before the success-path guard ran: still verify
     # real user state, preserving diagnostics under $tmp.
     verify_post_guards "$tmp/guard-after-fail.txt" || rc=1
@@ -178,7 +178,8 @@ inventory() {
   (
     cd "$1" && find . \( -type f -o -type l \) -print0 2>/dev/null | sort -z |
       while IFS= read -r -d '' f; do
-        if [ -L "$f" ]; then printf 'L %s -> %s\n' "$f" "$(readlink "$f")";
+        if [ -L "$f" ]; then
+          printf 'L %s -> %s\n' "$f" "$(readlink "$f")"
         else printf 'F %s %s\n' "$f" "$(sha256sum <"$f" | cut -d' ' -f1)"; fi
       done
   )
@@ -211,7 +212,8 @@ snapshot_guards() {
       fi
     done
     echo '# real ~/.dsh inventory (must be byte-identical after)'
-    if [ -d "$outer_home/.dsh" ]; then inventory "$outer_home/.dsh";
+    if [ -d "$outer_home/.dsh" ]; then
+      inventory "$outer_home/.dsh"
     else echo 'NO-REAL-DSH'; fi
   } >"$1"
 }
@@ -219,7 +221,7 @@ snapshot_guards "$guard_before"
 
 # No user systemd may be reachable under isolation (reloadSystemd guard).
 if command -v systemctl >/dev/null 2>&1; then
-  if XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS= \
+  if XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS='' \
     systemctl --user is-system-running 2>/dev/null | grep -Eq '^(running|degraded)$'; then
     fail "user systemd reachable under XDG_RUNTIME_DIR isolation; refusing (service-reload risk)"
   fi
@@ -269,10 +271,12 @@ echo "hm host e2e: daemon gate (NIX_REMOTE=$NIX_REMOTE, NIX_STATE_DIR=$NIX_STATE
 ping_json=$(nix store ping --json 2>"$tmp/store-ping.stderr") ||
   fail "daemon gate: nix store ping failed (see $tmp/store-ping.stderr)"
 case "$ping_json" in *"$nix_daemon_uri"*) ;; *)
-  fail "daemon gate: store ping url is not the live daemon (want $nix_daemon_uri, got: $ping_json)" ;;
+  fail "daemon gate: store ping url is not the live daemon (want $nix_daemon_uri, got: $ping_json)"
+  ;;
 esac
 case "$ping_json" in *'"trusted":1'* | *'"trusted":true'*) ;; *)
-  fail "daemon gate: store ping not trusted (got: $ping_json)" ;;
+  fail "daemon gate: store ping not trusted (got: $ping_json)"
+  ;;
 esac
 echo "hm host e2e: daemon gate: live daemon reachable ($ping_json)"
 
@@ -292,7 +296,7 @@ echo "hm host e2e: generation $generation (GC root: $artifact_dir/generation)"
 # --- shared-DB proof: registered deriver must EXACTLY equal evaluated drvPath
 deriver=$(nix-store --query --deriver "$pkg_out" 2>"$tmp/deriver.stderr") ||
   fail "shared-DB proof: deriver query failed for evaluated $pkg_out (see $tmp/deriver.stderr)"
-[[ "$deriver" == "$pkg_drv" ]] ||
+[[ $deriver == "$pkg_drv" ]] ||
   fail "shared-DB proof: registered deriver mismatch (got: $deriver, want exactly: $pkg_drv)"
 echo "hm host e2e: shared-DB proof: registered deriver exactly matches evaluated drvPath ($deriver)"
 
@@ -311,7 +315,7 @@ echo "hm host e2e: project-pinned node $node_bin (out $node_out)"
 # USER/HOME binding verified), no DRY_RUN, no shims on PATH.
 # Guarantee the declared live driver0 contract regardless of ambient env.
 unset DRY_RUN SKIP_SANITY_CHECKS || true
-[[ -z "${DRY_RUN:-}" && -z "${SKIP_SANITY_CHECKS:-}" ]] ||
+[[ -z ${DRY_RUN:-} && -z ${SKIP_SANITY_CHECKS:-} ]] ||
   fail "could not clear DRY_RUN/SKIP_SANITY_CHECKS for live activation"
 activation_attempted=1
 VERBOSE=1 env -u DBUS_SESSION_BUS_ADDRESS -u DRY_RUN -u SKIP_SANITY_CHECKS \
@@ -327,7 +331,7 @@ test -x "$dsh_bin" ||
   fail "profile-installed dsh missing at $dsh_bin; real package install did not happen"
 dsh_real=$(readlink -f "$dsh_bin") ||
   fail "profile-installed dsh link is dangling ($dsh_bin)"
-[[ "$dsh_real" == "$pkg_out/bin/dsh" ]] ||
+[[ $dsh_real == "$pkg_out/bin/dsh" ]] ||
   fail "installed dsh is not the evaluated package (got: $dsh_real, want: $pkg_out/bin/dsh)"
 echo "hm host e2e: real profile install owned by pinned HM (gen_profile=$gen_profile dsh=$dsh_real)"
 
@@ -372,7 +376,7 @@ test -f "$codex_stamp" || fail "codex stamp missing after activation"
   fail "codex stamp != expected artifact (got: $(cat "$codex_stamp"), want: $expected_codex)"
 codex_bundles=$(jq -c '.dsh.profile.bundles' "$codex_dir/package.json") ||
   fail "codex package.json bundles unreadable"
-[[ "$codex_bundles" == '["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dsh-codex"]' ]] ||
+[[ $codex_bundles == '["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dsh-codex"]' ]] ||
   fail "codex bundles != declared composition (got: $codex_bundles)"
 jq -e '.[0].id == "llm-openai-codex" and .[0].config.searchMode == "live"' \
   "$codex_dir/cordis.patch.yml" >/dev/null || fail "codex user layer mutated"
@@ -411,7 +415,7 @@ test -f "$usernpm_dir/package.json" || fail "user-npm package.json missing after
   fail "user-npm stamp != expected artifact (got: $(cat "$usernpm_stamp"), want: $expected_usernpm)"
 usernpm_bundles=$(jq -c '.dsh.profile.bundles' "$usernpm_dir/package.json") ||
   fail "user-npm package.json bundles unreadable"
-[[ "$usernpm_bundles" == '["@dsh-poc/user-npm-plugin"]' ]] ||
+[[ $usernpm_bundles == '["@dsh-poc/user-npm-plugin"]' ]] ||
   fail "user-npm bundles != manifest-declared layer (got: $usernpm_bundles)"
 jq --arg want "$usernpm_root" -e '.dependencies."@dsh-poc/user-npm-plugin" == $want' \
   "$usernpm_dir/package.json" >/dev/null ||
@@ -427,7 +431,7 @@ test ! -L "$usernpm_dir/node_modules/@dsh-poc" || fail "user-npm scope parent is
 test -L "$usernpm_dir/node_modules/@dsh-poc/user-npm-plugin" ||
   fail "user-npm scoped package is not a single exact link"
 usernpm_link=$(readlink "$usernpm_dir/node_modules/@dsh-poc/user-npm-plugin")
-[[ "$usernpm_link" == "$usernpm_root" ]] ||
+[[ $usernpm_link == "$usernpm_root" ]] ||
   fail "user-npm link != immutable installed root (got: $usernpm_link, want: $usernpm_root)"
 jq -e '.name == "@dsh-poc/user-npm-plugin"' "$usernpm_link/package.json" >/dev/null ||
   fail "user-npm link target manifest name mismatch (pname must never infer identity)"
@@ -447,7 +451,10 @@ if (checkOdd(3) !== true) { console.error('odd3 != true'); process.exit(1); }
 if (checkOdd(4) !== false) { console.error('odd4 != false'); process.exit(1); }
 console.log('USERNPM-IMPORT-OK odd3=true odd4=false');
 " >"$tmp/usernpm-import.log" 2>&1 ||
-  { cat "$tmp/usernpm-import.log" >&2; fail "activated user-npm real import (see $tmp/usernpm-import.log)"; }
+  {
+    cat "$tmp/usernpm-import.log" >&2
+    fail "activated user-npm real import (see $tmp/usernpm-import.log)"
+  }
 grep -q '^USERNPM-IMPORT-OK' "$tmp/usernpm-import.log" || fail "user-npm import marker missing"
 echo "hm host e2e: activated user-npm real import ($(cat "$tmp/usernpm-import.log"))"
 usernpm_bin_home="$tmp/usernpm-bin-home"
