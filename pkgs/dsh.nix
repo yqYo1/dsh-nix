@@ -22,6 +22,7 @@
   makeBinaryWrapper,
   python3,
   node-gyp,
+  jq,
   src,
 }:
 
@@ -51,6 +52,7 @@ stdenv.mkDerivation {
     makeBinaryWrapper
     python3
     node-gyp
+    jq
   ];
   inherit pnpmDeps;
   env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
@@ -84,6 +86,18 @@ stdenv.mkDerivation {
       "$out/.agents" "$out/.claude" \
       "$out/node_modules/.pnpm/node_modules/@deepseek-ai/website" \
       "$out/node_modules/.cache"
+    # Emit a package-name -> package-root index once, as part of the dsh
+    # output.  Profile builds need on-demand bundle roots; walking this
+    # multi-gigabyte installation per bundle is unnecessary and makes profile
+    # builds depend on the installation size.
+    mkdir -p "$out/share/dsh-nix"
+    find "$out" -path '*/node_modules' -prune -o -name package.json -print \
+      | while IFS= read -r manifest; do
+          name=$(jq -r '.name // empty' "$manifest" 2>/dev/null) || continue
+          [ -n "$name" ] || continue
+          printf '%s\t%s\n' "$name" "$(dirname "$manifest")"
+        done \
+      | sort -u > "$out/share/dsh-nix/bundles.tsv"
     mkdir -p "$out/bin"
     # Node builtin compat (introduced with rc.2): ship the
     # narrowly-triggered
