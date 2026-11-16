@@ -43,8 +43,8 @@
           # NOTE: the test file (tests/hm-real.nix) is reached through the
           # parent source tree (dsh-nix.outPath), not a literal
           # ./hm-real.nix: a subflake source tree contains only
-          # tests/, so the test's own ../lib, ../modules and ../examples
-          # imports would escape the flake boundary under pure evaluation.
+          # tests/, so the test's own ../lib and ../modules imports would
+          # escape the flake boundary under pure evaluation.
           # Importing the identical file via the path input keeps every
           # relative import inside the parent tree.
           home-manager-integration =
