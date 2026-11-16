@@ -179,6 +179,31 @@
           # actionlint, statix and deadnix are configured in treefmt.nix.
           treefmt = treefmtEval.${system}.config.build.check self;
 
+          # Keep the three user-visible version labels and the pinned input
+          # in lockstep.  The package version is the source of truth; a tag
+          # update that forgets the README or the checker comment fails here.
+          version-consistency =
+            pkgs.runCommand "dsh-version-consistency-check"
+              {
+                nativeBuildInputs = [ pkgs.gnugrep ];
+                package = ./pkgs/dsh.nix;
+                rootFlake = ./flake.nix;
+                readme = ./README.md;
+                checker = ./scripts/check-profile.mjs;
+              }
+              ''
+                version=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";/\1/p' "$package")
+                test -n "$version" || { echo "version-consistency: package version missing" >&2; exit 1; }
+                grep -Fq "dsh-v$version" "$rootFlake" \
+                  || { echo "version-consistency: flake input tag != package version $version" >&2; exit 1; }
+                grep -Fq "current package is \`$version\`" "$readme" \
+                  || { echo "version-consistency: README version != package version $version" >&2; exit 1; }
+                grep -Fq "dsh-v$version" "$checker" \
+                  || { echo "version-consistency: checker comment version != package version $version" >&2; exit 1; }
+                echo "version consistency: $version"
+                touch "$out"
+              '';
+
           # Official-bundle drift guard: the accepted by-name set must equal
           # every bundle the installation ships.  The rule mirrors the
           # plugin-manager's own `shipped` computation: a package is an
