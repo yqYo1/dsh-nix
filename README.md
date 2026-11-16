@@ -74,7 +74,7 @@ programs.dsh.profiles.research = {
 };
 ```
 
-The accepted name list and the on-demand list come from the pinned DSH source; unsupported bundle names are rejected.
+The official catalog is defined in `lib/official-bundles.nix`; the drift checks compare it with the pinned DSH source. Unsupported bundle names are rejected.
 
 ### Out-of-tree plugins (Nix packages and paths)
 
@@ -148,14 +148,17 @@ nixpkgs.overlays = [ inputs.dsh-nix.overlays.default ];
 environment.systemPackages = [ pkgs.dsh ];
 ```
 
-The Home Manager module's `package` uses `pkgs.dsh` when the overlay is applied, and otherwise builds the bundled `pkgs/dsh.nix`.
+The Home Manager module defaults to the flake's pinned `packages.<system>.dsh`; an explicitly specified `package` is never replaced or rewrapped.
 An explicitly specified `package` is never replaced or rewrapped by the module.
 
 ### Home Manager
 
 ```nix
 inputs.dsh-nix.url = "github:yqYo1/dsh-nix";
-inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs";
+# For the dsh-nix binary cache, omit this follows: it rebuilds dsh against
+# your nixpkgs and therefore misses the cached dsh derivation.  Add it only
+# when you intentionally want one nixpkgs evaluation for every input.
+# inputs.dsh-nix.inputs.nixpkgs.follows = "nixpkgs";
 
 imports = [ inputs.dsh-nix.homeManagerModules.dsh ];
 
