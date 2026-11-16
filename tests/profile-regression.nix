@@ -17,7 +17,7 @@
 #     bundle + raw bundle DERIVATION + raw plain DERIVATION
 #   - plain dependency is symlinked but NOT activated in bundles
 #   - explicit in-box bundle order is exact, not sorted
-#   - userPatchesFile wins over inline userPatches, payload preserved verbatim
+#   - userPatchesFile and inline userPatches are mutually exclusive; file payload preserved verbatim
 #   - inline userPatches JSON payload preserved when no file is set
 #   - explicit patchPath projects a real rc.2-consumable layer: projected
 #     node_modules manifest declares exactly the selected patch, patch bytes
@@ -81,16 +81,7 @@ let
       plainDrv
     ];
     userPatchesFile = ./fixtures/user-patch.yml;
-    userPatches = [
-      {
-        insert = [
-          {
-            id = "inline-shadowed-row";
-            name = "@test/shadowed";
-          }
-        ];
-      }
-    ];
+    userPatches = [ ];
   };
 
   inline = profilesLib.mkProfile {
@@ -229,9 +220,40 @@ let
     inherit pkgs;
     profile = duplicateProfile;
   };
+
+  # Patch-file and inline patches are mutually exclusive.
+  conflictEval = builtins.tryEval (
+    profilesLib.mkProfile {
+      name = "regression-conflict";
+      inherit inBoxNames;
+      plugins = [ (pluginsLib.mkBundle { path = ./fixtures/local-bundle; }) ];
+      userPatchesFile = ./fixtures/user-patch.yml;
+      userPatches = [
+        {
+          insert = [
+            {
+              id = "conflict-row";
+              name = "@test/conflict";
+            }
+          ];
+        }
+      ];
+    }
+  );
+
+  # A fully custom profile must not silently produce an empty composition.
+  emptyEval = builtins.tryEval (
+    profilesLib.mkProfile {
+      name = "regression-empty";
+      inherit inBoxNames;
+      plugins = [ ];
+    }
+  );
 in
 assert !duplicateEval.success;
 assert deferredEval.success;
+assert !conflictEval.success;
+assert !emptyEval.success;
 {
   inherit
     orderedArtifact

@@ -4,6 +4,24 @@ let
   pluginsLib = import ./plugins.nix { inherit lib; };
   inherit (pluginsLib) classifyPlugin;
 
+  # Profile names become one path component under ~/.dsh/profiles and part of
+  # the derivation name.  Validate here, not only in the Home Manager module:
+  # profilesLib is public and tests call mkProfile directly.
+  invalidNameReason =
+    name:
+    if name == "" then
+      "must not be empty"
+    else if name == "." || name == ".." then
+      "must not be ${builtins.toJSON name}"
+    else if name == "node_modules" then
+      "is reserved"
+    else if builtins.match ".*[\\/].*" name != null then
+      "must not contain '/' or '\\'"
+    else if builtins.match ".*[[:cntrl:]].*" name != null then
+      "must not contain control characters"
+    else
+      null;
+
   mkProfile =
     {
       name,
@@ -29,15 +47,19 @@ let
       # the eval-known names now; buildProfile enforces runtime
       # uniqueness after resolution.
       knownPackageNames = builtins.filter (n: n != null && n != "") packageNames;
+      nameReason = if name == null then "must not be null" else invalidNameReason name;
       uniquePackageNames =
         if builtins.length knownPackageNames == builtins.length (lib.unique knownPackageNames) then
           true
         else
           throw "dsh profile: plugin packageNames must be unique";
     in
+    assert nameReason == null;
     assert uniquePackageNames;
     assert extends == null || plugins == [ ];
     assert extends != null || extraPlugins == [ ];
+    assert extends != null || plugins != [ ];
+    assert userPatchesFile == null || userPatches == [ ];
     {
       inherit
         name
@@ -345,5 +367,5 @@ let
       '';
 in
 {
-  inherit mkProfile buildProfile;
+  inherit mkProfile buildProfile invalidNameReason;
 }
