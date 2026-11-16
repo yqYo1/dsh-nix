@@ -48,8 +48,14 @@
           # Importing the identical file via the path input keeps every
           # relative import inside the parent tree.
           home-manager-integration =
+            let
+              inherit (dsh-nix) officialBundles;
+              inBoxNames = lib.unique (
+                lib.concatLists (lib.attrValues officialBundles.profileTemplates) ++ officialBundles.optional
+              );
+            in
             (import (dsh-nix.outPath + "/tests/hm-real.nix") {
-              inherit pkgs;
+              inherit pkgs inBoxNames;
               hmPath = home-manager;
             }).check;
 

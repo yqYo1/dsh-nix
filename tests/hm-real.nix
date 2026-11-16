@@ -20,16 +20,16 @@
 {
   pkgs,
   hmPath ? "",
+  inBoxNames ? [
+    "@deepseek-ai/dsh-base"
+    "@deepseek-ai/dsh-web-app"
+  ],
   ...
 }:
 
 let
   inherit (pkgs) lib;
   profilesLib = import ../lib/profiles.nix { inherit lib; };
-  inBoxNames = [
-    "@deepseek-ai/dsh-base"
-    "@deepseek-ai/dsh-web-app"
-  ];
   dshModule = import ../modules/home-manager/dsh.nix {
     inherit profilesLib inBoxNames;
     buildPkgsFor = _: pkgs;
