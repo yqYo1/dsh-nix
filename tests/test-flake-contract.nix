@@ -43,6 +43,7 @@ let
     "profile-templates"
     "profile-user-npm"
     "treefmt"
+    "version-consistency"
   ];
 
   fail = msg: throw "test-flake-contract: ${msg}";
