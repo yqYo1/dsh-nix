@@ -1,5 +1,8 @@
 name: "build"
 
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:
@@ -11,11 +14,11 @@ jobs:
   dsh_build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4.4.0 # 11d5960a326750d5838078e36cf38b85af677262
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: yqyo1
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-      - run: nix build --accept-flake-config
-      - run: nix run --accept-flake-config . -- --version
+      - run: nix build --no-update-lock-file --no-write-lock-file --accept-flake-config
+      - run: nix run --no-update-lock-file --no-write-lock-file --accept-flake-config . -- --version
