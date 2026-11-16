@@ -10,6 +10,7 @@ let
   profilesLib = import ../lib/profiles.nix { inherit lib; };
   module = import ../modules/home-manager/dsh.nix {
     inherit profilesLib;
+    buildPkgsFor = _: pkgs;
     inBoxNames = [
       "@deepseek-ai/dsh-base"
       "@deepseek-ai/dsh-web-app"
@@ -68,6 +69,7 @@ let
   # template's name only after disabling it; `extends` works while disabled.
   templateFactory = import ../modules/home-manager/dsh.nix {
     inherit profilesLib;
+    buildPkgsFor = _: pkgs;
     inBoxNames = [
       "@deepseek-ai/dsh-base"
       "@deepseek-ai/dsh-web-app"

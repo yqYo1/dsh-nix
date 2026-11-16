@@ -32,6 +32,7 @@ let
   ];
   module = import ../modules/home-manager/dsh.nix {
     inherit profilesLib inBoxNames;
+    buildPkgsFor = _: pkgs;
     dshSrc = null;
   };
   stub = { lib, ... }: {
