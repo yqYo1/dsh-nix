@@ -26,7 +26,7 @@
 { pkgs }:
 
 let
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
   pluginsLib = import ../lib/plugins.nix { inherit lib; };
   profilesLib = import ../lib/profiles.nix { inherit lib; };
 
@@ -82,7 +82,14 @@ let
     ];
     userPatchesFile = ./fixtures/user-patch.yml;
     userPatches = [
-      { insert = [{ id = "inline-shadowed-row"; name = "@test/shadowed"; }]; }
+      {
+        insert = [
+          {
+            id = "inline-shadowed-row";
+            name = "@test/shadowed";
+          }
+        ];
+      }
     ];
   };
 
@@ -94,7 +101,14 @@ let
     ];
     userPatchesFile = null;
     userPatches = [
-      { insert = [{ id = "test-inline-row"; name = "@test/inline-row"; }]; }
+      {
+        insert = [
+          {
+            id = "test-inline-row";
+            name = "@test/inline-row";
+          }
+        ];
+      }
     ];
   };
 
@@ -104,7 +118,10 @@ let
     name = "regression-forced";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkBundle { path = plainDrv; patchPath = "cordis.patch.yml"; })
+      (pluginsLib.mkBundle {
+        path = plainDrv;
+        patchPath = "cordis.patch.yml";
+      })
     ];
     userPatchesFile = null;
     userPatches = [ ];
@@ -128,7 +145,10 @@ let
     name = "regression-external";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkBundle { path = plainDrv; patchPath = ./fixtures/external-patch/cordis.patch.yml; })
+      (pluginsLib.mkBundle {
+        path = plainDrv;
+        patchPath = ./fixtures/external-patch/cordis.patch.yml;
+      })
     ];
     userPatchesFile = null;
     userPatches = [ ];
@@ -138,34 +158,59 @@ let
     name = "regression-external-colliding";
     inherit inBoxNames;
     plugins = [
-      (pluginsLib.mkBundle { path = plainDrv; patchPath = "${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml"; })
+      (pluginsLib.mkBundle {
+        path = plainDrv;
+        patchPath = "${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml";
+      })
     ];
     userPatchesFile = null;
     userPatches = [ ];
   };
 
-  orderedArtifact = profilesLib.buildProfile { inherit pkgs; profile = ordered; };
-  inlineArtifact = profilesLib.buildProfile { inherit pkgs; profile = inline; };
-  forcedArtifact = profilesLib.buildProfile { inherit pkgs; profile = forced; };
-  externalArtifact = profilesLib.buildProfile { inherit pkgs; profile = external; };
-  externalCollidingArtifact = profilesLib.buildProfile { inherit pkgs; profile = externalColliding; };
+  orderedArtifact = profilesLib.buildProfile {
+    inherit pkgs;
+    profile = ordered;
+  };
+  inlineArtifact = profilesLib.buildProfile {
+    inherit pkgs;
+    profile = inline;
+  };
+  forcedArtifact = profilesLib.buildProfile {
+    inherit pkgs;
+    profile = forced;
+  };
+  externalArtifact = profilesLib.buildProfile {
+    inherit pkgs;
+    profile = external;
+  };
+  externalCollidingArtifact = profilesLib.buildProfile {
+    inherit pkgs;
+    profile = externalColliding;
+  };
 
   # Eval-time duplicate names (path bundles) must still throw.
-  duplicateEval = builtins.tryEval (profilesLib.mkProfile {
-    name = "dup";
-    inherit inBoxNames;
-    plugins = [
-      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
-      (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
-    ];
-  });
+  duplicateEval = builtins.tryEval (
+    profilesLib.mkProfile {
+      name = "dup";
+      inherit inBoxNames;
+      plugins = [
+        (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
+        (pluginsLib.mkBundle { path = ./fixtures/local-bundle; })
+      ];
+    }
+  );
 
   # Two deferred (null) names must NOT throw at eval; runtime resolves them.
-  deferredEval = builtins.tryEval (profilesLib.mkProfile {
-    name = "deferred-ok";
-    inherit inBoxNames;
-    plugins = [ bundleDrv plainDrv ];
-  });
+  deferredEval = builtins.tryEval (
+    profilesLib.mkProfile {
+      name = "deferred-ok";
+      inherit inBoxNames;
+      plugins = [
+        bundleDrv
+        plainDrv
+      ];
+    }
+  );
 
   # Actual duplicate raw names: eval defers (both null), but the build must
   # fail loud on the resolved duplicate. Exposed separately so callers can
@@ -173,162 +218,181 @@ let
   duplicateProfile = profilesLib.mkProfile {
     name = "regression-duplicate";
     inherit inBoxNames;
-    plugins = [ bundleDrv bundleDrv ];
+    plugins = [
+      bundleDrv
+      bundleDrv
+    ];
     userPatchesFile = null;
     userPatches = [ ];
   };
-  duplicateArtifact = profilesLib.buildProfile { inherit pkgs; profile = duplicateProfile; };
+  duplicateArtifact = profilesLib.buildProfile {
+    inherit pkgs;
+    profile = duplicateProfile;
+  };
 in
 assert !duplicateEval.success;
 assert deferredEval.success;
 {
-  inherit orderedArtifact inlineArtifact forcedArtifact duplicateArtifact externalArtifact externalCollidingArtifact;
+  inherit
+    orderedArtifact
+    inlineArtifact
+    forcedArtifact
+    duplicateArtifact
+    externalArtifact
+    externalCollidingArtifact
+    ;
 
-  check = pkgs.runCommand "dsh-profile-regression-check"
-    {
-      nativeBuildInputs = [ pkgs.jq pkgs.diffutils ];
-    }
-    ''
-      set -euo pipefail
-      ordered=${orderedArtifact}
-      inline=${inlineArtifact}
-      forced=${forcedArtifact}
-
-      # --- ordered mixture: exact bundle order (in-box order preserved) ---
-      expected_bundles='["@deepseek-ai/dsh-web-app","@deepseek-ai/dsh-base","@test/local-bundle","@test/bundle-plugin"]'
-      actual_bundles=$(jq -c '.dsh.profile.bundles' "$ordered/package.json")
-      if [ "$actual_bundles" != "$expected_bundles" ]; then
-        echo "bundles mismatch: got $actual_bundles want $expected_bundles" >&2
-        exit 1
-      fi
-
-      # --- plain dep: present in dependencies, absent from bundles ---
-      jq -e '.dependencies | has("@test/plain-dep")' "$ordered/package.json" > /dev/null
-      jq -e '.dependencies | has("@test/bundle-plugin")' "$ordered/package.json" > /dev/null
-      jq -e '.dependencies | has("@test/local-bundle")' "$ordered/package.json" > /dev/null
-      if jq -e '.dsh.profile.bundles | index("@test/plain-dep")' "$ordered/package.json" > /dev/null; then
-        echo "plain dep must not be activated" >&2
-        exit 1
-      fi
-
-      # --- node_modules symlinks for all nix plugins ---
-      test -L "$ordered/node_modules/@test/local-bundle"
-      test -L "$ordered/node_modules/@test/bundle-plugin"
-      test -L "$ordered/node_modules/@test/plain-dep"
-      # manifest preserved verbatim through the symlink
-      test "$(jq -r '.name' "$ordered/node_modules/@test/bundle-plugin/package.json")" = "@test/bundle-plugin"
-      test "$(jq -r '.name' "$ordered/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
-
-      # --- userPatchesFile priority: file wins, payload verbatim ---
-      if ! cmp -s "$ordered/cordis.patch.yml" ${./fixtures/user-patch.yml}; then
-        echo "userPatchesFile payload not preserved verbatim" >&2
-        diff -u ${./fixtures/user-patch.yml} "$ordered/cordis.patch.yml" >&2 || true
-        exit 1
-      fi
-      if grep -q inline-shadowed "$ordered/cordis.patch.yml"; then
-        echo "inline userPatches must not win over userPatchesFile" >&2
-        exit 1
-      fi
-
-      # --- inline JSON payload preserved when no file is set (valid Cordis syntax) ---
-      jq -e '.[0].insert[0].id == "test-inline-row"' "$inline/cordis.patch.yml" > /dev/null
-      test "$(jq -c '.dsh.profile.bundles' "$inline/package.json")" = '["@test/local-bundle"]'
-
-      # --- explicit patchPath forces layer membership AND real rc.2 content ---
-      test "$(jq -c '.dsh.profile.bundles' "$forced/package.json")" = '["@test/plain-dep"]'
-      jq -e '.dependencies | has("@test/plain-dep")' "$forced/package.json" > /dev/null
-      # projected manifest declares exactly the selected patch (rc.2 reads this)
-      test "$(jq -r '.dsh.bundle.patch' "$forced/node_modules/@test/plain-dep/package.json")" = "cordis.patch.yml"
-      # manifest identity/payload preserved through the projection
-      test "$(jq -r '.name' "$forced/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
-      test "$(jq -r '.main' "$forced/node_modules/@test/plain-dep/package.json")" = "./index.js"
-      # projection is a real directory, not a bare symlink to the patch-less original
-      test ! -L "$forced/node_modules/@test/plain-dep"
-      test -d "$forced/node_modules/@test/plain-dep"
-      # actual patch file exists beside the projected manifest, valid Cordis syntax
-      test -f "$forced/node_modules/@test/plain-dep/cordis.patch.yml"
-      grep -q "test-plain-dep-row" "$forced/node_modules/@test/plain-dep/cordis.patch.yml"
-      if grep -q "op: add" "$forced/node_modules/@test/plain-dep/cordis.patch.yml"; then
-        echo "forced patch must use Cordis insert/id syntax, not RFC6902 op/path" >&2
-        exit 1
-      fi
-      # projected bytes match the source package's selected file
-      orig=$(jq -r '.dependencies["@test/plain-dep"]' "$forced/package.json")
-      cmp -s "$orig/cordis.patch.yml" "$forced/node_modules/@test/plain-dep/cordis.patch.yml" || {
-        echo "projected patch bytes differ from source package selection" >&2
-        exit 1
+  check =
+    pkgs.runCommand "dsh-profile-regression-check"
+      {
+        nativeBuildInputs = [
+          pkgs.jq
+          pkgs.diffutils
+        ];
       }
+      ''
+        set -euo pipefail
+        ordered=${orderedArtifact}
+        inline=${inlineArtifact}
+        forced=${forcedArtifact}
 
-      # --- external path-typed patch with colliding basename ---
-      external=${externalArtifact}
-      test "$(jq -c '.dsh.profile.bundles' "$external/package.json")" = '["@test/plain-dep"]'
-      jq -e '.dependencies | has("@test/plain-dep")' "$external/package.json" > /dev/null
-      # projected manifest refers to the SELECTED patch file beside it
-      extPatchRel=$(jq -r '.dsh.bundle.patch' "$external/node_modules/@test/plain-dep/package.json")
-      if [ -z "$extPatchRel" ] || [ "$extPatchRel" = "null" ]; then
-        echo "external projection must declare dsh.bundle.patch" >&2
-        exit 1
-      fi
-      test -f "$external/node_modules/@test/plain-dep/$extPatchRel"
-      # identity/exports preserved through the projection
-      test "$(jq -r '.name' "$external/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
-      test "$(jq -r '.main' "$external/node_modules/@test/plain-dep/package.json")" = "./index.js"
-      test ! -L "$external/node_modules/@test/plain-dep"
-      test -d "$external/node_modules/@test/plain-dep"
-      # selected bytes win: projected file matches the external selection,
-      # not the stale in-package bytes
-      cmp -s ${./fixtures/external-patch/cordis.patch.yml} "$external/node_modules/@test/plain-dep/$extPatchRel" || {
-        echo "external projected patch bytes differ from selected patch" >&2
-        exit 1
-      }
-      grep -q "test-external-selected-row" "$external/node_modules/@test/plain-dep/$extPatchRel"
-      if grep -q "test-plain-dep-row" "$external/node_modules/@test/plain-dep/$extPatchRel"; then
-        echo "external projection carries stale in-package bytes" >&2
-        exit 1
-      fi
-      # source package unchanged: still carries its own old bytes only
-      extOrig=$(jq -r '.dependencies["@test/plain-dep"]' "$external/package.json")
-      grep -q "test-plain-dep-row" "$extOrig/cordis.patch.yml"
-      if grep -q "test-external-selected-row" "$extOrig/cordis.patch.yml"; then
-        echo "external selection leaked into source package" >&2
-        exit 1
-      fi
+        # --- ordered mixture: exact bundle order (in-box order preserved) ---
+        expected_bundles='["@deepseek-ai/dsh-web-app","@deepseek-ai/dsh-base","@test/local-bundle","@test/bundle-plugin"]'
+        actual_bundles=$(jq -c '.dsh.profile.bundles' "$ordered/package.json")
+        if [ "$actual_bundles" != "$expected_bundles" ]; then
+          echo "bundles mismatch: got $actual_bundles want $expected_bundles" >&2
+          exit 1
+        fi
 
-      # --- TRUE basename collision: absolute store-dir string keeps basename
-      # cordis.patch.yml, identical to the package's own file. Manifest must
-      # declare exactly cordis.patch.yml; projection must hold SELECTED bytes
-      # as a real file (not a symlink), source package untouched.
-      colliding=${externalCollidingArtifact}
-      test "$(jq -c '.dsh.profile.bundles' "$colliding/package.json")" = '["@test/plain-dep"]'
-      jq -e '.dependencies | has("@test/plain-dep")' "$colliding/package.json" > /dev/null
-      test "$(jq -r '.dsh.bundle.patch' "$colliding/node_modules/@test/plain-dep/package.json")" = "cordis.patch.yml"
-      test "$(jq -r '.name' "$colliding/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
-      test "$(jq -r '.main' "$colliding/node_modules/@test/plain-dep/package.json")" = "./index.js"
-      test ! -L "$colliding/node_modules/@test/plain-dep"
-      test -d "$colliding/node_modules/@test/plain-dep"
-      test -f "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"
-      test ! -L "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"
-      cmp -s ${builtins.path { path = ./fixtures/external-patch; }}/cordis.patch.yml "$colliding/node_modules/@test/plain-dep/cordis.patch.yml" || {
-        echo "colliding projected patch bytes differ from selected patch" >&2
-        exit 1
-      }
-      grep -q "test-external-selected-row" "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"
-      if grep -q "test-plain-dep-row" "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"; then
-        echo "colliding projection carries stale in-package bytes" >&2
-        exit 1
-      fi
-      colOrig=$(jq -r '.dependencies["@test/plain-dep"]' "$colliding/package.json")
-      grep -q "test-plain-dep-row" "$colOrig/cordis.patch.yml"
-      if grep -q "test-external-selected-row" "$colOrig/cordis.patch.yml"; then
-        echo "colliding selection leaked into source package" >&2
-        exit 1
-      fi
+        # --- plain dep: present in dependencies, absent from bundles ---
+        jq -e '.dependencies | has("@test/plain-dep")' "$ordered/package.json" > /dev/null
+        jq -e '.dependencies | has("@test/bundle-plugin")' "$ordered/package.json" > /dev/null
+        jq -e '.dependencies | has("@test/local-bundle")' "$ordered/package.json" > /dev/null
+        if jq -e '.dsh.profile.bundles | index("@test/plain-dep")' "$ordered/package.json" > /dev/null; then
+          echo "plain dep must not be activated" >&2
+          exit 1
+        fi
 
-      # --- artifact shape ---
-      test "$(jq -r '.name' "$ordered/package.json")" = "regression-ordered"
-      jq -e '.private == true' "$ordered/package.json" > /dev/null
+        # --- node_modules symlinks for all nix plugins ---
+        test -L "$ordered/node_modules/@test/local-bundle"
+        test -L "$ordered/node_modules/@test/bundle-plugin"
+        test -L "$ordered/node_modules/@test/plain-dep"
+        # manifest preserved verbatim through the symlink
+        test "$(jq -r '.name' "$ordered/node_modules/@test/bundle-plugin/package.json")" = "@test/bundle-plugin"
+        test "$(jq -r '.name' "$ordered/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
 
-      mkdir -p "$out"
-      printf 'REGRESSION-OK %s\n' "$ordered" > "$out/marker"
-    '';
+        # --- userPatchesFile priority: file wins, payload verbatim ---
+        if ! cmp -s "$ordered/cordis.patch.yml" ${./fixtures/user-patch.yml}; then
+          echo "userPatchesFile payload not preserved verbatim" >&2
+          diff -u ${./fixtures/user-patch.yml} "$ordered/cordis.patch.yml" >&2 || true
+          exit 1
+        fi
+        if grep -q inline-shadowed "$ordered/cordis.patch.yml"; then
+          echo "inline userPatches must not win over userPatchesFile" >&2
+          exit 1
+        fi
+
+        # --- inline JSON payload preserved when no file is set (valid Cordis syntax) ---
+        jq -e '.[0].insert[0].id == "test-inline-row"' "$inline/cordis.patch.yml" > /dev/null
+        test "$(jq -c '.dsh.profile.bundles' "$inline/package.json")" = '["@test/local-bundle"]'
+
+        # --- explicit patchPath forces layer membership AND real rc.2 content ---
+        test "$(jq -c '.dsh.profile.bundles' "$forced/package.json")" = '["@test/plain-dep"]'
+        jq -e '.dependencies | has("@test/plain-dep")' "$forced/package.json" > /dev/null
+        # projected manifest declares exactly the selected patch (rc.2 reads this)
+        test "$(jq -r '.dsh.bundle.patch' "$forced/node_modules/@test/plain-dep/package.json")" = "cordis.patch.yml"
+        # manifest identity/payload preserved through the projection
+        test "$(jq -r '.name' "$forced/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
+        test "$(jq -r '.main' "$forced/node_modules/@test/plain-dep/package.json")" = "./index.js"
+        # projection is a real directory, not a bare symlink to the patch-less original
+        test ! -L "$forced/node_modules/@test/plain-dep"
+        test -d "$forced/node_modules/@test/plain-dep"
+        # actual patch file exists beside the projected manifest, valid Cordis syntax
+        test -f "$forced/node_modules/@test/plain-dep/cordis.patch.yml"
+        grep -q "test-plain-dep-row" "$forced/node_modules/@test/plain-dep/cordis.patch.yml"
+        if grep -q "op: add" "$forced/node_modules/@test/plain-dep/cordis.patch.yml"; then
+          echo "forced patch must use Cordis insert/id syntax, not RFC6902 op/path" >&2
+          exit 1
+        fi
+        # projected bytes match the source package's selected file
+        orig=$(jq -r '.dependencies["@test/plain-dep"]' "$forced/package.json")
+        cmp -s "$orig/cordis.patch.yml" "$forced/node_modules/@test/plain-dep/cordis.patch.yml" || {
+          echo "projected patch bytes differ from source package selection" >&2
+          exit 1
+        }
+
+        # --- external path-typed patch with colliding basename ---
+        external=${externalArtifact}
+        test "$(jq -c '.dsh.profile.bundles' "$external/package.json")" = '["@test/plain-dep"]'
+        jq -e '.dependencies | has("@test/plain-dep")' "$external/package.json" > /dev/null
+        # projected manifest refers to the SELECTED patch file beside it
+        extPatchRel=$(jq -r '.dsh.bundle.patch' "$external/node_modules/@test/plain-dep/package.json")
+        if [ -z "$extPatchRel" ] || [ "$extPatchRel" = "null" ]; then
+          echo "external projection must declare dsh.bundle.patch" >&2
+          exit 1
+        fi
+        test -f "$external/node_modules/@test/plain-dep/$extPatchRel"
+        # identity/exports preserved through the projection
+        test "$(jq -r '.name' "$external/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
+        test "$(jq -r '.main' "$external/node_modules/@test/plain-dep/package.json")" = "./index.js"
+        test ! -L "$external/node_modules/@test/plain-dep"
+        test -d "$external/node_modules/@test/plain-dep"
+        # selected bytes win: projected file matches the external selection,
+        # not the stale in-package bytes
+        cmp -s ${./fixtures/external-patch/cordis.patch.yml} "$external/node_modules/@test/plain-dep/$extPatchRel" || {
+          echo "external projected patch bytes differ from selected patch" >&2
+          exit 1
+        }
+        grep -q "test-external-selected-row" "$external/node_modules/@test/plain-dep/$extPatchRel"
+        if grep -q "test-plain-dep-row" "$external/node_modules/@test/plain-dep/$extPatchRel"; then
+          echo "external projection carries stale in-package bytes" >&2
+          exit 1
+        fi
+        # source package unchanged: still carries its own old bytes only
+        extOrig=$(jq -r '.dependencies["@test/plain-dep"]' "$external/package.json")
+        grep -q "test-plain-dep-row" "$extOrig/cordis.patch.yml"
+        if grep -q "test-external-selected-row" "$extOrig/cordis.patch.yml"; then
+          echo "external selection leaked into source package" >&2
+          exit 1
+        fi
+
+        # --- TRUE basename collision: absolute store-dir string keeps basename
+        # cordis.patch.yml, identical to the package's own file. Manifest must
+        # declare exactly cordis.patch.yml; projection must hold SELECTED bytes
+        # as a real file (not a symlink), source package untouched.
+        colliding=${externalCollidingArtifact}
+        test "$(jq -c '.dsh.profile.bundles' "$colliding/package.json")" = '["@test/plain-dep"]'
+        jq -e '.dependencies | has("@test/plain-dep")' "$colliding/package.json" > /dev/null
+        test "$(jq -r '.dsh.bundle.patch' "$colliding/node_modules/@test/plain-dep/package.json")" = "cordis.patch.yml"
+        test "$(jq -r '.name' "$colliding/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"
+        test "$(jq -r '.main' "$colliding/node_modules/@test/plain-dep/package.json")" = "./index.js"
+        test ! -L "$colliding/node_modules/@test/plain-dep"
+        test -d "$colliding/node_modules/@test/plain-dep"
+        test -f "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"
+        test ! -L "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"
+        cmp -s ${
+          builtins.path { path = ./fixtures/external-patch; }
+        }/cordis.patch.yml "$colliding/node_modules/@test/plain-dep/cordis.patch.yml" || {
+          echo "colliding projected patch bytes differ from selected patch" >&2
+          exit 1
+        }
+        grep -q "test-external-selected-row" "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"
+        if grep -q "test-plain-dep-row" "$colliding/node_modules/@test/plain-dep/cordis.patch.yml"; then
+          echo "colliding projection carries stale in-package bytes" >&2
+          exit 1
+        fi
+        colOrig=$(jq -r '.dependencies["@test/plain-dep"]' "$colliding/package.json")
+        grep -q "test-plain-dep-row" "$colOrig/cordis.patch.yml"
+        if grep -q "test-external-selected-row" "$colOrig/cordis.patch.yml"; then
+          echo "colliding selection leaked into source package" >&2
+          exit 1
+        fi
+
+        # --- artifact shape ---
+        test "$(jq -r '.name' "$ordered/package.json")" = "regression-ordered"
+        jq -e '.private == true' "$ordered/package.json" > /dev/null
+
+        mkdir -p "$out"
+        printf 'REGRESSION-OK %s\n' "$ordered" > "$out/marker"
+      '';
 }

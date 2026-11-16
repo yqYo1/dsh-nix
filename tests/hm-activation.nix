@@ -11,27 +11,42 @@
 #             { plugins, userPatches ?, userPatchesFile ? }
 #   settings  seed-only settings.yaml content
 #   homePatchesFile  machine-level patch layer path or null
-{ pkgs
-, profiles ? {
-    agent.plugins = [ "@deepseek-ai/dsh-base" ./fixtures/lifecycle-probe ];
-  }
-, settings ? { }
-, homePatchesFile ? null
+{
+  pkgs,
+  profiles ? {
+    agent.plugins = [
+      "@deepseek-ai/dsh-base"
+      ./fixtures/lifecycle-probe
+    ];
+  },
+  settings ? { },
+  homePatchesFile ? null,
 }:
 
 let
-  lib = pkgs.lib;
-  pluginsLib = import ../lib/plugins.nix { inherit lib; };
+  inherit (pkgs) lib;
   profilesLib = import ../lib/profiles.nix { inherit lib; };
-  inBoxNames = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" ];
+  inBoxNames = [
+    "@deepseek-ai/dsh-base"
+    "@deepseek-ai/dsh-web-app"
+  ];
   module = import ../modules/home-manager/dsh.nix {
-    inherit pluginsLib profilesLib inBoxNames;
+    inherit profilesLib inBoxNames;
     dshSrc = null;
   };
   stub = { lib, ... }: {
-    options.home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
-    options.home.file = lib.mkOption { type = lib.types.attrs; default = { }; };
-    options.home.activation = lib.mkOption { type = lib.types.attrs; default = { }; };
+    options.home.packages = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = [ ];
+    };
+    options.home.file = lib.mkOption {
+      type = lib.types.attrs;
+      default = { };
+    };
+    options.home.activation = lib.mkOption {
+      type = lib.types.attrs;
+      default = { };
+    };
   };
   profileDefaults = {
     plugins = [ ];
@@ -40,7 +55,9 @@ let
     # Threaded (not dropped): a lock-bearing caller profile must reach
     # mkProfile intact, never silently fall back to live resolve.
   };
-  normalized = lib.mapAttrs (name: p: profileDefaults // (if builtins.isAttrs p then p else { plugins = p; })) profiles;
+  normalized = lib.mapAttrs (
+    _name: p: profileDefaults // (if builtins.isAttrs p then p else { plugins = p; })
+  ) profiles;
   cfg = {
     programs.dsh = {
       enable = true;
@@ -50,17 +67,29 @@ let
     };
   };
   evaluated = lib.evalModules {
-    modules = [ stub module cfg ];
+    modules = [
+      stub
+      module
+      cfg
+    ];
     specialArgs = { inherit pkgs; };
   };
 
-  declarations = lib.mapAttrs (name: p:
+  declarations = lib.mapAttrs (
+    name: p:
     profilesLib.mkProfile {
       inherit name;
       inherit (p) plugins userPatchesFile userPatches;
       inherit inBoxNames;
-    }) normalized;
-  artifacts = lib.mapAttrs (name: d: profilesLib.buildProfile { inherit pkgs; profile = d; }) declarations;
+    }
+  ) normalized;
+  artifacts = lib.mapAttrs (
+    _name: d:
+    profilesLib.buildProfile {
+      inherit pkgs;
+      profile = d;
+    }
+  ) declarations;
 
   activationValue = evaluated.config.home.activation.dshProfiles;
   activation = if builtins.isString activationValue then activationValue else activationValue.data;

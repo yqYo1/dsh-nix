@@ -42,9 +42,21 @@
 # pnpm-deps fixed-output hash stays valid under consumer nixpkgs overrides;
 # the user's nixpkgs must still provide `pnpmConfigHook` and pnpm 11 for the
 # main build.
-{ pluginsLib, profilesLib, inBoxNames, dshSrc, profileTemplates ? [ ], onDemandBundles ? [ ], fetchPnpmDepsFor ? (_: null) }:
+{
+  profilesLib,
+  inBoxNames,
+  dshSrc,
+  profileTemplates ? [ ],
+  onDemandBundles ? [ ],
+  fetchPnpmDepsFor ? (_: null),
+}:
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.programs.dsh;
@@ -66,7 +78,13 @@ let
         '';
       };
       extraPlugins = lib.mkOption {
-        type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
+        type = lib.types.listOf (
+          lib.types.oneOf [
+            lib.types.str
+            lib.types.path
+            lib.types.package
+          ]
+        );
         default = [ ];
         description = ''
           Entries appended to the template profile after its template bundles.
@@ -114,7 +132,13 @@ let
         '';
       };
       extraPlugins = lib.mkOption {
-        type = lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]);
+        type = lib.types.listOf (
+          lib.types.oneOf [
+            lib.types.str
+            lib.types.path
+            lib.types.package
+          ]
+        );
         default = [ ];
         description = ''
           Entries appended after the extended template's bundles. Accepts the
@@ -123,7 +147,15 @@ let
         '';
       };
       plugins = lib.mkOption {
-        type = lib.types.nullOr (lib.types.listOf (lib.types.oneOf [ lib.types.str lib.types.path lib.types.package ]));
+        type = lib.types.nullOr (
+          lib.types.listOf (
+            lib.types.oneOf [
+              lib.types.str
+              lib.types.path
+              lib.types.package
+            ]
+          )
+        );
         default = null;
         description = ''
           Full custom plugin list: the profile is entirely user-defined, uses
@@ -151,11 +183,15 @@ let
     };
   };
 
-  templateReason = name:
-    if builtins.elem name profileTemplates then null
-    else "is not a shipped profile template (expected one of ${lib.concatStringsSep ", " profileTemplates})";
+  templateReason =
+    name:
+    if builtins.elem name profileTemplates then
+      null
+    else
+      "is not a shipped profile template (expected one of ${lib.concatStringsSep ", " profileTemplates})";
 
-  profileReason = name: p:
+  profileReason =
+    name: p:
     if (cfg.templates ? ${name}) && cfg.templates.${name}.enable && p.enable then
       "is also an enabled shipped template profile; disable templates.${name} first or rename the profile"
     else if p.extends != null && p.plugins != null then
@@ -169,39 +205,58 @@ let
     else
       null;
 
-  checkedTemplates = lib.mapAttrs (name: t:
-    let reason = templateReason name; in
-    if reason == null then t
-    else throw "programs.dsh: template profile ${builtins.toJSON name} ${reason}") cfg.templates;
+  checkedTemplates = lib.mapAttrs (
+    name: t:
+    let
+      reason = templateReason name;
+    in
+    if reason == null then
+      t
+    else
+      throw "programs.dsh: template profile ${builtins.toJSON name} ${reason}"
+  ) cfg.templates;
 
-  checkedProfiles = lib.mapAttrs (name: p:
-    let reason = profileReason name p; in
-    if reason == null then p
-    else throw "programs.dsh: profile ${builtins.toJSON name} ${reason}") cfg.profiles;
+  checkedProfiles = lib.mapAttrs (
+    name: p:
+    let
+      reason = profileReason name p;
+    in
+    if reason == null then p else throw "programs.dsh: profile ${builtins.toJSON name} ${reason}"
+  ) cfg.profiles;
 
-  templateDeclarations = lib.mapAttrs (name: t:
+  templateDeclarations = lib.mapAttrs (
+    name: t:
     profilesLib.mkProfile {
       inherit name;
       extends = name;
       inherit (t) extraPlugins userPatchesFile userPatches;
       inherit inBoxNames;
       installBundles = onDemandBundles;
-    }) (lib.filterAttrs (_: t: t.enable) checkedTemplates);
+    }
+  ) (lib.filterAttrs (_: t: t.enable) checkedTemplates);
 
-  profileDeclarations = lib.mapAttrs (name: p:
+  profileDeclarations = lib.mapAttrs (
+    name: p:
     profilesLib.mkProfile {
       inherit name;
-      extends = p.extends;
+      inherit (p) extends;
       plugins = if p.plugins == null then [ ] else p.plugins;
       inherit (p) extraPlugins userPatchesFile userPatches;
       inherit inBoxNames;
       installBundles = onDemandBundles;
-    }) (lib.filterAttrs (_: p: p.enable) checkedProfiles);
+    }
+  ) (lib.filterAttrs (_: p: p.enable) checkedProfiles);
 
   declarations = templateDeclarations // profileDeclarations;
 
-  artifacts = lib.mapAttrs (name: declaration:
-    profilesLib.buildProfile { inherit pkgs; profile = declaration; install = cfg.package; }) declarations;
+  artifacts = lib.mapAttrs (
+    _name: declaration:
+    profilesLib.buildProfile {
+      inherit pkgs;
+      profile = declaration;
+      install = cfg.package;
+    }
+  ) declarations;
 
   # Profile names become a single pathname component under
   # ~/.dsh/profiles.  Validation mirrors upstream dsh (profile.ts): only
@@ -216,17 +271,30 @@ let
   # single double-quoted string: that helper emits single-quoted literals
   # ('web'), which are literal quote characters once wrapped in double
   # quotes ("$HOME/.../'web'").
-  invalidNameReason = name:
-    if name == "" then "must not be empty"
-    else if name == "." || name == ".." then "must not be ${builtins.toJSON name}"
-    else if name == "node_modules" then "is reserved"
-    else if builtins.match ".*[\\/].*" name != null then "must not contain '/' or '\\'"
-    else if builtins.match ".*[[:cntrl:]].*" name != null then "must not contain control characters"
-    else null;
-  checkedArtifacts = lib.mapAttrs (name: artifact:
-    let reason = invalidNameReason name;
-    in if reason == null then artifact
-    else throw "programs.dsh: profile name ${builtins.toJSON name} ${reason}") artifacts;
+  invalidNameReason =
+    name:
+    if name == "" then
+      "must not be empty"
+    else if name == "." || name == ".." then
+      "must not be ${builtins.toJSON name}"
+    else if name == "node_modules" then
+      "is reserved"
+    else if builtins.match ".*[\\/].*" name != null then
+      "must not contain '/' or '\\'"
+    else if builtins.match ".*[[:cntrl:]].*" name != null then
+      "must not contain control characters"
+    else
+      null;
+  checkedArtifacts = lib.mapAttrs (
+    name: artifact:
+    let
+      reason = invalidNameReason name;
+    in
+    if reason == null then
+      artifact
+    else
+      throw "programs.dsh: profile name ${builtins.toJSON name} ${reason}"
+  ) artifacts;
 
   # Separate shell words: double-quoted $HOME prefix, single-quoted name.
   profileDir = name: "\"$HOME/.dsh/profiles\"/" + lib.escapeShellArg name;
@@ -248,7 +316,8 @@ let
     fi
   '';
 
-  activateProfile = name: artifact:
+  activateProfile =
+    name: artifact:
     let
       dir = profileDir name;
       stamp = stampFile name;
@@ -305,7 +374,9 @@ let
     if [ -f "${managedFile}" ]; then
       while IFS= read -r old; do
         case "$old" in
-          ${lib.concatStringsSep "|" (map lib.escapeShellArg (currentNames ++ [ "" ]))}) : ;; # still declared (or empty line)
+          ${
+            lib.concatStringsSep "|" (map lib.escapeShellArg (currentNames ++ [ "" ]))
+          }) : ;; # still declared (or empty line)
           "." | ".." | "node_modules" | "" | *[/\\]*) : ;; # never delete unsafe, reserved, or empty entries
           *) if [[ "$old" == *[[:cntrl:]]* ]]; then :; else rm -rf "$HOME/.dsh/profiles/$old"; fi ;;
         esac
@@ -323,9 +394,12 @@ let
 
   activationScript =
     activateRootGuard
-    + "\n" + lib.concatStringsSep "\n" (lib.mapAttrsToList activateProfile checkedArtifacts)
-    + "\n" + activateCleanup
-    + "\n" + activateSettings;
+    + "\n"
+    + lib.concatStringsSep "\n" (lib.mapAttrsToList activateProfile checkedArtifacts)
+    + "\n"
+    + activateCleanup
+    + "\n"
+    + activateSettings;
 in
 {
   options.programs.dsh = {

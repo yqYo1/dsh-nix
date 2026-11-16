@@ -12,7 +12,14 @@
 #   5. nested pins for dsh/nixpkgs/systems recorded in tests/flake.lock go
 #      stale relative to the parent on-disk flake.lock, or unexpected extra
 #      inputs appear in the tests lock.
-{ pkgs, lib, system, nixpkgs, dshNix, rootSrc, testsLock }:
+{
+  pkgs,
+  lib,
+  system,
+  dshNix,
+  rootSrc,
+  testsLock,
+}:
 
 let
   expectedHmRev = "d9d750e4fc11c10cab2da677bdd31e427f3a3a71";
@@ -37,6 +44,7 @@ let
     "profile-template-extension"
     "profile-templates"
     "profile-user-npm"
+    "treefmt"
   ];
 
   fail = msg: throw "test-flake-contract: ${msg}";
@@ -46,109 +54,184 @@ let
   rootNodes = rootLock.nodes or (fail "root flake.lock has no 'nodes' object");
   testsNodes = testsLock.nodes or (fail "tests flake.lock has no 'nodes' object");
 
-  revOf = nodes: name:
-    if builtins.hasAttr name nodes
+  revOf =
+    nodes: name:
+    if
+      builtins.hasAttr name nodes
       && builtins.isAttrs nodes.${name}
       && builtins.hasAttr "locked" nodes.${name}
       && builtins.isAttrs nodes.${name}.locked
       && builtins.hasAttr "rev" nodes.${name}.locked
-    then nodes.${name}.locked.rev
-    else null;
+    then
+      nodes.${name}.locked.rev
+    else
+      null;
 
   # --- 1. no test-only wiring in the public root flake ---------------------
   # NOTE: the public module path ./modules/home-manager/dsh.nix legitimately
   # contains "home-manager", so match the input/check wiring precisely.
-  c1 = if lib.hasInfix "inputs.home-manager" rootFlake
-    then fail "root flake.nix declares 'inputs.home-manager'; test-only inputs belong in tests/flake.nix"
-    else true;
-  c2 = if lib.hasInfix "home-manager-integration" rootFlake
-    then fail "root flake.nix wires 'home-manager-integration'; HM checks belong in tests/flake.nix"
-    else true;
-  c3 = if lib.hasInfix "hmPath = home-manager" rootFlake
-    then fail "root flake.nix passes 'hmPath = home-manager'; HM harness belongs in tests/flake.nix"
-    else true;
+  c1 =
+    if lib.hasInfix "inputs.home-manager" rootFlake then
+      fail "root flake.nix declares 'inputs.home-manager'; test-only inputs belong in tests/flake.nix"
+    else
+      true;
+  c2 =
+    if lib.hasInfix "home-manager-integration" rootFlake then
+      fail "root flake.nix wires 'home-manager-integration'; HM checks belong in tests/flake.nix"
+    else
+      true;
+  c3 =
+    if lib.hasInfix "hmPath = home-manager" rootFlake then
+      fail "root flake.nix passes 'hmPath = home-manager'; HM harness belongs in tests/flake.nix"
+    else
+      true;
 
   # --- 2. HM fully gone from the root lock ---------------------------------
-  c4 = if builtins.hasAttr "home-manager" rootNodes
-    then fail "root flake.lock still contains a 'home-manager' node"
-    else true;
+  c4 =
+    if builtins.hasAttr "home-manager" rootNodes then
+      fail "root flake.lock still contains a 'home-manager' node"
+    else
+      true;
 
   # --- 3. HM pinned only in tests, nixpkgs follows the parent --------------
   testsHmRev = revOf testsNodes "home-manager";
-  c5 = if testsHmRev == null
-    then fail "tests flake.lock has no locked 'home-manager' node"
-    else if testsHmRev != expectedHmRev
-    then fail "tests home-manager rev '${testsHmRev}' != expected '${expectedHmRev}'"
-    else true;
+  c5 =
+    if testsHmRev == null then
+      fail "tests flake.lock has no locked 'home-manager' node"
+    else if testsHmRev != expectedHmRev then
+      fail "tests home-manager rev '${testsHmRev}' != expected '${expectedHmRev}'"
+    else
+      true;
 
-  testsRootInputs = testsLock.nodes.root.inputs
-    or (fail "tests flake.lock root node has no 'inputs' object");
-  c6 = if builtins.attrNames testsRootInputs != [ "dsh-nix" "home-manager" "nixpkgs" ]
-    then fail "tests flake.lock root inputs must be exactly {dsh-nix, home-manager, nixpkgs}; got: ${builtins.toJSON (builtins.attrNames testsRootInputs)}"
-    else true;
+  testsRootInputs =
+    testsLock.nodes.root.inputs or (fail "tests flake.lock root node has no 'inputs' object");
+  c6 =
+    if
+      builtins.attrNames testsRootInputs != [
+        "dsh-nix"
+        "home-manager"
+        "nixpkgs"
+      ]
+    then
+      fail "tests flake.lock root inputs must be exactly {dsh-nix, home-manager, nixpkgs}; got: ${builtins.toJSON (builtins.attrNames testsRootInputs)}"
+    else
+      true;
   # follows-edges are recorded as input-address arrays in the lock.
-  c7 = if testsRootInputs.nixpkgs != [ "dsh-nix" "nixpkgs" ]
-    then fail "tests nixpkgs must follow dsh-nix/nixpkgs; lock edge is: ${builtins.toJSON testsRootInputs.nixpkgs}"
-    else true;
-  hmInputs = testsNodes.home-manager.inputs
-    or (fail "tests flake.lock home-manager node has no 'inputs' object");
-  c8 = if hmInputs.nixpkgs != [ "nixpkgs" ]
-    then fail "tests home-manager nixpkgs must follow tests nixpkgs; lock edge is: ${builtins.toJSON hmInputs.nixpkgs}"
-    else true;
+  c7 =
+    if
+      testsRootInputs.nixpkgs != [
+        "dsh-nix"
+        "nixpkgs"
+      ]
+    then
+      fail "tests nixpkgs must follow dsh-nix/nixpkgs; lock edge is: ${builtins.toJSON testsRootInputs.nixpkgs}"
+    else
+      true;
+  hmInputs =
+    testsNodes.home-manager.inputs
+      or (fail "tests flake.lock home-manager node has no 'inputs' object");
+  c8 =
+    if hmInputs.nixpkgs != [ "nixpkgs" ] then
+      fail "tests home-manager nixpkgs must follow tests nixpkgs; lock edge is: ${builtins.toJSON hmInputs.nixpkgs}"
+    else
+      true;
   # The parent source itself must be a portable relative path reference.
-  parentOriginal = testsNodes.dsh-nix.original
-    or (fail "tests flake.lock has no dsh-nix original reference");
-  c9 = if !(builtins.isAttrs parentOriginal)
+  parentOriginal =
+    testsNodes.dsh-nix.original or (fail "tests flake.lock has no dsh-nix original reference");
+  c9 =
+    if
+      !(builtins.isAttrs parentOriginal)
       || parentOriginal.type or "" != "path"
       || lib.hasPrefix "/" (parentOriginal.path or "/")
-    then fail "dsh-nix must stay a portable relative path:../. reference; got: ${builtins.toJSON parentOriginal}"
-    else true;
+    then
+      fail "dsh-nix must stay a portable relative path:../. reference; got: ${builtins.toJSON parentOriginal}"
+    else
+      true;
 
   # --- 4. public identity preserved ----------------------------------------
-  c10 = if !(builtins.hasAttr "homeManagerModules" dshNix)
+  c10 =
+    if
+      !(builtins.hasAttr "homeManagerModules" dshNix)
       || !(builtins.isAttrs dshNix.homeManagerModules)
       || !(builtins.hasAttr "dsh" dshNix.homeManagerModules)
-    then fail "public homeManagerModules.dsh missing from parent flake"
-    else true;
-  c11 = if !(builtins.hasAttr "overlays" dshNix)
+    then
+      fail "public homeManagerModules.dsh missing from parent flake"
+    else
+      true;
+  c11 =
+    if
+      !(builtins.hasAttr "overlays" dshNix)
       || !(builtins.isAttrs dshNix.overlays)
       || !(builtins.hasAttr "default" dshNix.overlays)
-    then fail "public overlays.default missing from parent flake"
-    else true;
-  parentPkgs = if builtins.hasAttr "packages" dshNix && builtins.hasAttr system dshNix.packages
-    then dshNix.packages.${system}
-    else fail "parent flake has no packages.${system}";
-  c12 = if !(builtins.hasAttr "default" parentPkgs)
-    then fail "parent packages.${system}.default missing"
-    else true;
-  c13 = if !(builtins.hasAttr "dsh" parentPkgs)
-      || parentPkgs.default.outPath != parentPkgs.dsh.outPath
-    then fail "parent packages.${system}.default must stay identical to packages.${system}.dsh"
-    else true;
+    then
+      fail "public overlays.default missing from parent flake"
+    else
+      true;
+  parentPkgs =
+    if builtins.hasAttr "packages" dshNix && builtins.hasAttr system dshNix.packages then
+      dshNix.packages.${system}
+    else
+      fail "parent flake has no packages.${system}";
+  c12 =
+    if !(builtins.hasAttr "default" parentPkgs) then
+      fail "parent packages.${system}.default missing"
+    else
+      true;
+  c13 =
+    if !(builtins.hasAttr "dsh" parentPkgs) || parentPkgs.default.outPath != parentPkgs.dsh.outPath then
+      fail "parent packages.${system}.default must stay identical to packages.${system}.dsh"
+    else
+      true;
   parentCheckNames = builtins.attrNames (
-    if builtins.hasAttr "checks" dshNix && builtins.hasAttr system dshNix.checks
-    then dshNix.checks.${system}
-    else fail "parent flake has no checks.${system}"
+    if builtins.hasAttr "checks" dshNix && builtins.hasAttr system dshNix.checks then
+      dshNix.checks.${system}
+    else
+      fail "parent flake has no checks.${system}"
   );
-  c14 = if parentCheckNames != hmIndependentChecks
-    then fail "parent checks.${system} must be exactly the HM-independent checks ${builtins.toJSON hmIndependentChecks}; got: ${builtins.toJSON parentCheckNames}"
-    else true;
+  c14 =
+    if parentCheckNames != hmIndependentChecks then
+      fail "parent checks.${system} must be exactly the HM-independent checks ${builtins.toJSON hmIndependentChecks}; got: ${builtins.toJSON parentCheckNames}"
+    else
+      true;
 
   # --- 5. no stale nested pins vs the parent on-disk lock ------------------
-  stalePin = name:
+  stalePin =
+    name:
     let
       a = revOf rootNodes name;
       b = revOf testsNodes name;
     in
-    if a == null then fail "root flake.lock has no locked '${name}' node"
-    else if b == null then fail "tests flake.lock has no locked '${name}' node; re-run `nix flake lock` in tests/"
-    else if a != b then fail "stale nested pin: tests '${name}' rev '${b}' != parent on-disk rev '${a}'"
-    else true;
+    if a == null then
+      fail "root flake.lock has no locked '${name}' node"
+    else if b == null then
+      fail "tests flake.lock has no locked '${name}' node; re-run `nix flake lock` in tests/"
+    else if a != b then
+      fail "stale nested pin: tests '${name}' rev '${b}' != parent on-disk rev '${a}'"
+    else
+      true;
   c15 = stalePin "nixpkgs";
   c16 = stalePin "systems";
   c17 = stalePin "dsh";
 
-  allOk = lib.all (x: x) [ c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 ];
+  allOk = lib.all (x: x) [
+    c1
+    c2
+    c3
+    c4
+    c5
+    c6
+    c7
+    c8
+    c9
+    c10
+    c11
+    c12
+    c13
+    c14
+    c15
+    c16
+    c17
+  ];
 
 in
 assert allOk;

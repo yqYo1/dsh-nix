@@ -52,9 +52,18 @@ TAG=""
 PATTERN="dsh-v*"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --tag) TAG="${2:?--tag needs a value}"; shift 2 ;;
-    --pattern) PATTERN="${2:?--pattern needs a value}"; shift 2 ;;
-    *) echo "update-dsh.sh: unknown argument: $1" >&2; exit 2 ;;
+  --tag)
+    TAG="${2:?--tag needs a value}"
+    shift 2
+    ;;
+  --pattern)
+    PATTERN="${2:?--pattern needs a value}"
+    shift 2
+    ;;
+  *)
+    echo "update-dsh.sh: unknown argument: $1" >&2
+    exit 2
+    ;;
   esac
 done
 
@@ -79,9 +88,9 @@ emit() {
 if [ -z "$TAG" ]; then
   # Latest tag matching the pattern, version-sorted. `^{}` lines are the
   # peeled commits of annotated tags — drop them, keep tag objects.
-  TAG=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" "$PATTERN" \
-    | awk '$2 !~ /\^\{\}$/ { sub("refs/tags/", "", $2); print $2 }' \
-    | sort -V | tail -1)
+  TAG=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" "$PATTERN" |
+    awk '$2 !~ /\^\{\}$/ { sub("refs/tags/", "", $2); print $2 }' |
+    sort -V | tail -1)
   if [ -z "$TAG" ]; then
     echo "update-dsh.sh: no tags matching '$PATTERN' in ${UPSTREAM_REPO}" >&2
     exit 1
@@ -90,20 +99,20 @@ fi
 echo "target tag: ${TAG}"
 
 # True source version: package.json AT the tag, not floating main HEAD.
-VERSION=$(curl -sfL "https://raw.githubusercontent.com/${UPSTREAM_REPO}/${TAG}/apps/cli/package.json" \
-  | jq -r .version)
+VERSION=$(curl -sfL "https://raw.githubusercontent.com/${UPSTREAM_REPO}/${TAG}/apps/cli/package.json" |
+  jq -r .version)
 if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
   echo "update-dsh.sh: could not read version for tag ${TAG}" >&2
   exit 1
 fi
 
 # Tag -> commit SHA (peeled), for the lock-verification step below.
-SHA=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" "$TAG" \
-  | awk -v tag="refs/tags/${TAG}^{}" '$2 == tag { print $1 }' | head -1)
+SHA=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" "$TAG" |
+  awk -v tag="refs/tags/${TAG}^{}" '$2 == tag { print $1 }' | head -1)
 if [ -z "$SHA" ]; then
   # Lightweight tag: the ref line itself is the commit.
-  SHA=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" "$TAG" \
-    | awk -v tag="refs/tags/${TAG}" '$2 == tag { print $1 }' | head -1)
+  SHA=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" "$TAG" |
+    awk -v tag="refs/tags/${TAG}" '$2 == tag { print $1 }' | head -1)
 fi
 if [ ! "$SHA" ] || [ "${#SHA}" -ne 40 ]; then
   echo "update-dsh.sh: could not resolve tag ${TAG} to a commit SHA" >&2
@@ -148,9 +157,12 @@ if [ -n "$STRAY" ]; then
 fi
 
 case "$(uname -m)" in
-  x86_64) SYSTEM="x86_64-linux" ;;
-  aarch64) SYSTEM="aarch64-linux" ;;
-  *) echo "update-dsh.sh: unsupported arch: $(uname -m)" >&2; exit 1 ;;
+x86_64) SYSTEM="x86_64-linux" ;;
+aarch64) SYSTEM="aarch64-linux" ;;
+*)
+  echo "update-dsh.sh: unsupported arch: $(uname -m)" >&2
+  exit 1
+  ;;
 esac
 
 # Evaluated package version guard: the Nix package's own version must
@@ -161,7 +173,7 @@ esac
 EVAL_VERSION=$(nix eval --no-update-lock-file --no-write-lock-file --raw ".#packages.${SYSTEM}.dsh.version")
 if [ "$EVAL_VERSION" != "$VERSION" ]; then
   echo "update-dsh.sh: BLOCKED — evaluated package version ${EVAL_VERSION} != upstream tag CLI version ${VERSION} for ${TAG}." >&2
-  echo "The package owner must update \`version\` (+ pnpm \`hash\` if the lockfile moved) in" >&2
+  echo 'The package owner must update `version` (+ pnpm `hash` if the lockfile moved) in' >&2
   echo "pkgs/dsh.nix (owner file; this script never edits it), then re-run." >&2
   echo "No PR is opened from a red gate." >&2
   exit 4
@@ -185,7 +197,7 @@ else
   if grep -q "hash mismatch" "$BUILD_LOG"; then
     cat "$BUILD_LOG" >&2
     echo "update-dsh.sh: BLOCKED — pnpm store hash changed for ${TAG}." >&2
-    echo "The package owner must update \`version\` + pnpm \`hash\` in" >&2
+    echo 'The package owner must update `version` + pnpm `hash` in' >&2
     echo "pkgs/dsh.nix (owner file; this script never edits it), then re-run." >&2
     echo "No PR is opened from a red build." >&2
     exit 3

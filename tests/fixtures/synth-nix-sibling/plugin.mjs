@@ -1,1 +1,1 @@
-export const plugin = { name: '@dsh-synth/nix-sibling' }
+export const plugin = { name: "@dsh-synth/nix-sibling" };

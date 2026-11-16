@@ -6,19 +6,31 @@
 { pkgs }:
 
 let
-  lib = pkgs.lib;
-  pluginsLib = import ../lib/plugins.nix { inherit lib; };
+  inherit (pkgs) lib;
   profilesLib = import ../lib/profiles.nix { inherit lib; };
   module = import ../modules/home-manager/dsh.nix {
-    inherit pluginsLib profilesLib;
-    inBoxNames = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" "@deepseek-ai/dsh-experimental-session-search" ];
+    inherit profilesLib;
+    inBoxNames = [
+      "@deepseek-ai/dsh-base"
+      "@deepseek-ai/dsh-web-app"
+      "@deepseek-ai/dsh-experimental-session-search"
+    ];
     dshSrc = null;
   };
 
   stub = { lib, ... }: {
-    options.home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
-    options.home.file = lib.mkOption { type = lib.types.attrs; default = { }; };
-    options.home.activation = lib.mkOption { type = lib.types.attrs; default = { }; };
+    options.home.packages = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = [ ];
+    };
+    options.home.file = lib.mkOption {
+      type = lib.types.attrs;
+      default = { };
+    };
+    options.home.activation = lib.mkOption {
+      type = lib.types.attrs;
+      default = { };
+    };
   };
 
   # An external package the module must install EXACTLY (no wrapping): the
@@ -35,7 +47,10 @@ let
           package = externalPackage;
           homePatchesFile = null;
           profiles.agent = {
-            plugins = [ "@deepseek-ai/dsh-base" ./fixtures/lifecycle-probe ];
+            plugins = [
+              "@deepseek-ai/dsh-base"
+              ./fixtures/lifecycle-probe
+            ];
             userPatches = [ ];
           };
         };
@@ -44,7 +59,7 @@ let
     specialArgs = { inherit pkgs; };
   };
 
-  config = evaluated.config;
+  inherit (evaluated) config;
   activationValue = config.home.activation.dshProfiles or "";
   activation = if builtins.isString activationValue then activationValue else activationValue.data;
 
@@ -52,23 +67,39 @@ let
   # by default and can be extended in place; a user profile may reuse a
   # template's name only after disabling it; `extends` works while disabled.
   templateFactory = import ../modules/home-manager/dsh.nix {
-    inherit pluginsLib profilesLib;
-    inBoxNames = [ "@deepseek-ai/dsh-base" "@deepseek-ai/dsh-web-app" "@deepseek-ai/dsh-experimental-session-search" ];
-    profileTemplates = [ "headless" "web" ];
+    inherit profilesLib;
+    inBoxNames = [
+      "@deepseek-ai/dsh-base"
+      "@deepseek-ai/dsh-web-app"
+      "@deepseek-ai/dsh-experimental-session-search"
+    ];
+    profileTemplates = [
+      "headless"
+      "web"
+    ];
     dshSrc = null;
   };
-  evalWith = extra: (lib.evalModules {
-    modules = [
-      stub
-      templateFactory
-      {
-        programs.dsh = { enable = true; package = externalPackage; } // extra;
-      }
-    ];
-    specialArgs = { inherit pkgs; };
-  }).config;
-  activationOf = config:
-    let value = config.home.activation.dshProfiles or ""; in
+  evalWith =
+    extra:
+    (lib.evalModules {
+      modules = [
+        stub
+        templateFactory
+        {
+          programs.dsh = {
+            enable = true;
+            package = externalPackage;
+          }
+          // extra;
+        }
+      ];
+      specialArgs = { inherit pkgs; };
+    }).config;
+  activationOf =
+    config:
+    let
+      value = config.home.activation.dshProfiles or "";
+    in
     if builtins.isString value then value else value.data;
 
   templateConfig = evalWith {
@@ -77,7 +108,9 @@ let
   };
   customConfig = evalWith {
     templates.web.enable = false;
-    profiles.web = { plugins = [ "@deepseek-ai/dsh-base" ]; };
+    profiles.web = {
+      plugins = [ "@deepseek-ai/dsh-base" ];
+    };
   };
   extendsConfig = evalWith {
     templates.web.enable = false;
@@ -86,9 +119,15 @@ let
       extraPlugins = [ "@deepseek-ai/dsh-experimental-session-search" ];
     };
   };
-  clash = builtins.tryEval (builtins.deepSeq
-    (evalWith { profiles.web = { plugins = [ "@deepseek-ai/dsh-base" ]; }; }).home.activation.dshProfiles
-    true);
+  clash = builtins.tryEval (
+    builtins.deepSeq
+      (evalWith {
+        profiles.web = {
+          plugins = [ "@deepseek-ai/dsh-base" ];
+        };
+      }).home.activation.dshProfiles
+      true
+  );
 in
 {
   checks = [
@@ -108,7 +147,12 @@ in
     (builtins.head config.home.packages == externalPackage)
     ((builtins.head config.home.packages).outPath == externalPackage.outPath)
     # Shipped templates are declared by default and individually removable.
-    (lib.attrNames templateConfig.programs.dsh.templates == [ "headless" "web" ])
+    (
+      lib.attrNames templateConfig.programs.dsh.templates == [
+        "headless"
+        "web"
+      ]
+    )
     (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf templateConfig))
     (lib.hasInfix "\"$HOME/.dsh/profiles\"/headless" (activationOf templateConfig) == false)
     # Extending a template in place keeps the web profile.
@@ -131,7 +175,12 @@ in
     (builtins.length config.home.packages == 1)
     (builtins.head config.home.packages == externalPackage)
     ((builtins.head config.home.packages).outPath == externalPackage.outPath)
-    (lib.attrNames templateConfig.programs.dsh.templates == [ "headless" "web" ])
+    (
+      lib.attrNames templateConfig.programs.dsh.templates == [
+        "headless"
+        "web"
+      ]
+    )
     (lib.hasInfix "\"$HOME/.dsh/profiles\"/web" (activationOf templateConfig))
     (lib.hasInfix "\"$HOME/.dsh/profiles\"/headless" (activationOf templateConfig) == false)
     (lib.hasInfix "dsh-profile-web" (activationOf templateConfig))
