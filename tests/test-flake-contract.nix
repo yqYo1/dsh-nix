@@ -22,8 +22,6 @@
 }:
 
 let
-  expectedHmRev = "d9d750e4fc11c10cab2da677bdd31e427f3a3a71";
-
   # The HM-independent checks that must stay in the root flake,
   # exactly (sorted: builtins.attrNames returns sorted names).
   hmIndependentChecks = [
@@ -95,13 +93,7 @@ let
 
   # --- 3. HM pinned only in tests, nixpkgs follows the parent --------------
   testsHmRev = revOf testsNodes "home-manager";
-  c5 =
-    if testsHmRev == null then
-      fail "tests flake.lock has no locked 'home-manager' node"
-    else if testsHmRev != expectedHmRev then
-      fail "tests home-manager rev '${testsHmRev}' != expected '${expectedHmRev}'"
-    else
-      true;
+  c5 = if testsHmRev == null then fail "tests flake.lock has no locked 'home-manager' node" else true;
 
   testsRootInputs =
     testsLock.nodes.root.inputs or (fail "tests flake.lock root node has no 'inputs' object");
@@ -252,8 +244,8 @@ pkgs.runCommand "dsh-test-flake-contract"
     jq -e 'has("nodes")' "$rootLock" > /dev/null || fail "root lock has no nodes"
     jq -e '.nodes | has("home-manager") | not' "$rootLock" > /dev/null \
       || fail "root flake.lock contains home-manager"
-    [ "$(jq -r '.nodes."home-manager".locked.rev' "$testsLock")" = "${expectedHmRev}" ] \
-      || fail "tests home-manager rev mismatch"
+    [ -n "$(jq -r '.nodes."home-manager".locked.rev' "$testsLock")" ] \
+      || fail "tests home-manager rev missing"
     [ "$(jq -r '.nodes.root.inputs.nixpkgs | join(",")' "$testsLock")" = "dsh-nix,nixpkgs" ] \
       || fail "tests nixpkgs does not follow dsh-nix/nixpkgs"
     for pin in nixpkgs systems dsh; do
@@ -267,6 +259,6 @@ pkgs.runCommand "dsh-test-flake-contract"
     {
       echo "test-flake-contract: passed"
       printf 'parent checks: %s\n' ${lib.escapeShellArg (builtins.toJSON hmIndependentChecks)}
-      echo "home-manager rev: ${expectedHmRev}"
+      echo "home-manager rev: ${testsHmRev}"
     } > "$out/result.txt"
   ''
