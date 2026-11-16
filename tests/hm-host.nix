@@ -194,7 +194,13 @@ in
     packageExact = builtins.elem config.programs.dsh.package config.home.packages;
     # Side-effecting block ordered after writeBoundary under the real HM DAG
     # (a dependency cycle would abort while forcing activationPackage).
-    dagOrdered = builtins.isAttrs activationValue && activationValue.after == [ "writeBoundary" ];
+    dagOrdered =
+      builtins.isAttrs activationValue
+      &&
+        activationValue.after == [
+          "writeBoundary"
+          "linkGeneration"
+        ];
     layoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/agent" activationScript;
     userNpmLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/user-npm" activationScript;
     codexLayoutOk = lib.hasInfix "\"$HOME/.dsh/profiles\"/codex" activationScript;

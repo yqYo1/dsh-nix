@@ -321,8 +321,12 @@ let
       elif [[ -v DRY_RUN ]]; then
         echo "dshProfiles: would materialise profile ${lib.escapeShellArg name} from ${lib.escapeShellArg artifactString}"
       else
+        if [ -L ${stamp} ]; then
+          echo "dshProfiles: refusing to write through symlinked stamp ${stamp}" >&2
+          exit 1
+        fi
         rm -rf ${dir}
-        mkdir -p ${dir}
+        mkdir -p ${dir} 
         cp -a ${lib.escapeShellArg artifactString}/. ${dir}/
         # cp -a syncs the destination directory attributes (read-only store
         # modes) too; dsh rewrites the profile root cordis.yml on every boot.
@@ -336,6 +340,10 @@ let
       if [[ -v DRY_RUN ]]; then
         echo "dshProfiles: would seed $HOME/.dsh/settings.yaml"
       else
+      if [ -L "$HOME/.dsh/settings.yaml" ]; then
+        echo "dshProfiles: refusing to write through symlinked settings.yaml" >&2
+        exit 1
+      fi
       mkdir -p "$HOME/.dsh"
       umask 077
       cat > "$HOME/.dsh/settings.yaml" <<'DSH_NIX_SETTINGS'
@@ -378,6 +386,10 @@ let
     # byte-identical no-ops (command substitution strips trailing newlines
     # on both sides, keeping the comparison exact).
     new_managed=$(printf '%s\n' ${lib.escapeShellArgs currentNames})
+    if [ -L "${managedFile}" ]; then
+      echo "dshProfiles: refusing to write through symlinked manifest ${managedFile}" >&2
+      exit 1
+    fi
     if [ ! -f "${managedFile}" ] || [ "$(cat "${managedFile}")" != "$new_managed" ]; then
       printf '%s\n' ${lib.escapeShellArgs currentNames} > "${managedFile}"
     fi
@@ -465,7 +477,7 @@ in
     # (stub evaluations) has no lib.hm.dag, so fall back to the bare string.
     home.activation.dshProfiles =
       if lib ? hm && lib.hm ? dag && lib.hm.dag ? entryAfter then
-        lib.hm.dag.entryAfter [ "writeBoundary" ] activationScript
+        lib.hm.dag.entryAfter [ "writeBoundary" "linkGeneration" ] activationScript
       else
         activationScript;
   };
