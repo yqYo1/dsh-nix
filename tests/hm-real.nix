@@ -170,7 +170,13 @@ let
   # Under real HM the entry must be a DAG node ordered after writeBoundary
   # (side-effecting blocks run in the write phase, never anywhere).
   dagOrdered =
-    useReal && builtins.isAttrs activationValue && activationValue.after == [ "writeBoundary" ];
+    useReal
+    && builtins.isAttrs activationValue
+    &&
+      activationValue.after == [
+        "writeBoundary"
+        "linkGeneration"
+      ];
 
   # Forcing the activation package instantiates the full DAG topoSort:
   # a dependency cycle aborts here, proving DAG compatibility.
@@ -347,7 +353,12 @@ let
     let
       v = genActivation g;
     in
-    builtins.isAttrs v && v.after == [ "writeBoundary" ];
+    builtins.isAttrs v
+    &&
+      v.after == [
+        "writeBoundary"
+        "linkGeneration"
+      ];
   genPkgOk = g: builtins.elem externalPackage g.config.home.packages;
   # New quoting layout: "$HOME/.dsh/profiles"/agent for safe names;
   # unsafe-but-valid names get an escapeShellArg word: "/'my profile'".
