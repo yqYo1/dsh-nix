@@ -113,8 +113,7 @@ stdenv.mkDerivation {
           pnpm_11
           nodejs
         ]
-      }" \
-      --append-flags ""
+      }"
     runHook postInstall
   '';
 

@@ -62,7 +62,6 @@ let
       # Raw explicit selection (null when the caller did not pass patchPath):
       # projection triggers only on this, never on a manifest-declared patch.
       inherit explicitPatch;
-      isLayer = resolvedPatchPath != null;
     };
 
   classifyPlugin =
@@ -85,10 +84,20 @@ let
       else
         throw "dsh profile: ${plugin} is not an official bundle; provide it as a Nix package or plugin path (pnpm spec strings are not accepted)"
     else if builtins.isAttrs plugin && plugin ? packageName && plugin ? packagePath then
-      {
-        kind = "nix";
-        inherit plugin;
-      }
+      if plugin ? explicitPatch then
+        {
+          kind = "nix";
+          inherit plugin;
+        }
+      else
+        {
+          kind = "nix";
+          plugin = mkBundle {
+            inherit (plugin) packageName;
+            path = plugin.packagePath;
+            patchPath = plugin.patchPath or null;
+          };
+        }
     else
       {
         kind = "nix";

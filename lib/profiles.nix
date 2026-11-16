@@ -68,7 +68,6 @@ let
         userPatches
         ;
       plugins = classified;
-      inBox = map (entry: entry.name) (builtins.filter (entry: entry.kind == "in-box") classified);
       installBundles = map (entry: entry.name) (
         builtins.filter (entry: entry.kind == "install-bundle") classified
       );

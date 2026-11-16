@@ -418,9 +418,13 @@ in
           let
             fetcher = fetchPnpmDepsFor buildPkgs.stdenv.hostPlatform.system;
           in
-          buildPkgs.callPackage ../../pkgs/dsh.nix (
-            { src = dshSrc; } // lib.optionalAttrs (fetcher != null) { fetchPnpmDeps = fetcher; }
-          );
+          if fetcher == null then
+            throw "programs.dsh: buildPkgsFor must provide the pinned fetchPnpmDeps support"
+          else
+            buildPkgs.callPackage ../../pkgs/dsh.nix {
+              src = dshSrc;
+              fetchPnpmDeps = fetcher;
+            };
       defaultText = "pkgs.dsh (via inputs.dsh-nix.overlays.default) or the bundled callPackage build with the pinned pnpm-deps fetch support";
       description = "The dsh CLI package to install. Keep it the unwrapped dsh installation: template profiles read PROFILE_TEMPLATES from it and on-demand bundles link its source tree.";
     };
