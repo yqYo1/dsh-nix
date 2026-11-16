@@ -2,3 +2,6 @@ dsh
 result
 result-*
 .idea/
+
+# Local working notes and audit records; never commit them.
+.agent-notes/
