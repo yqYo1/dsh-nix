@@ -386,6 +386,8 @@ let
   # ~/.dsh/profiles (belt and braces alongside the eval-time name check),
   # so user-owned profiles are never touched.
 
+  removeOrphanProfiles = if cfg.removeOrphanProfiles then "1" else "0";
+
   activateCleanup = ''
     removeOrphanProfiles=${lib.escapeShellArg removeOrphanProfiles}
     # Never follow a user-supplied symlink: rm -rf through a symlinked
