@@ -385,6 +385,7 @@ let
   # removed, and only as a single path component under
   # ~/.dsh/profiles (belt and braces alongside the eval-time name check),
   # so user-owned profiles are never touched.
+
   activateCleanup = ''
     # Never follow a user-supplied symlink: rm -rf through a symlinked
     # root would delete the link target's contents.
@@ -396,6 +397,7 @@ let
       echo "dshProfiles: dry run, skipping profile cleanup and manifest update"
     else
     mkdir -p "$HOME/.dsh/profiles"
+    retained=""
     if [ -f "${managedFile}" ]; then
       while IFS= read -r old; do
         case "$old" in
@@ -403,14 +405,29 @@ let
             lib.concatStringsSep "|" (map lib.escapeShellArg (currentNames ++ [ "" ]))
           }) : ;; # still declared (or empty line)
           "." | ".." | "node_modules" | "" | *[/\\]*) : ;; # never delete unsafe, reserved, or empty entries
-          *) if [[ "$old" == *[[:cntrl:]]* ]]; then :; else rm -rf "$HOME/.dsh/profiles/$old"; fi ;;
+          *)
+            if [[ "$old" == *[[:cntrl:]]* ]]; then
+              :
+            elif [ "$removeOrphanProfiles" = 1 ]; then
+              stamp="$HOME/.dsh/profiles/$old/.dsh-nix-stamp"
+              if [ -L "$stamp" ] || [ ! -f "$stamp" ] || ! grep -Eq '^/nix/store/[a-z0-9]+-dsh-profile-' "$stamp"; then
+                echo "dshProfiles: keeping unmanaged orphan profile $old (invalid dsh-nix stamp)" >&2
+                retained="$retained$old"$'\n'
+              else
+                rm -rf "$HOME/.dsh/profiles/$old"
+              fi
+            else
+              echo "dshProfiles: keeping orphan profile $old (set programs.dsh.removeOrphanProfiles = true to remove)" >&2
+              retained="$retained$old"$'\n'
+            fi
+            ;;
         esac
       done < "${managedFile}"
     fi
     # Rewrite the manifest only when it changed, so repeat activations are
     # byte-identical no-ops (command substitution strips trailing newlines
     # on both sides, keeping the comparison exact).
-    new_managed=$(printf '%s\n' ${lib.escapeShellArgs currentNames})
+    new_managed=$(printf '%s\n' ${lib.escapeShellArgs currentNames}; printf '%s' "$retained")
     if [ -L "${managedFile}" ]; then
       echo "dshProfiles: refusing to write through symlinked manifest ${managedFile}" >&2
       exit 1
@@ -452,6 +469,17 @@ in
             };
       defaultText = "pkgs.dsh (via inputs.dsh-nix.overlays.default) or the bundled callPackage build with the pinned pnpm-deps fetch support";
       description = "The dsh CLI package to install. Keep it the unwrapped dsh installation: template profiles read PROFILE_TEMPLATES from it and on-demand bundles link its source tree.";
+    };
+
+    removeOrphanProfiles = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Remove profile directories that this module previously managed but
+        that are no longer declared.  Only profiles with a valid dsh-nix
+        stamp are considered; user-owned profiles are never touched.  The
+        default keeps orphans in place and reports them.
+      '';
     };
 
     templates = lib.mkOption {
