@@ -387,6 +387,7 @@ let
   # so user-owned profiles are never touched.
 
   activateCleanup = ''
+    removeOrphanProfiles=${lib.escapeShellArg removeOrphanProfiles}
     # Never follow a user-supplied symlink: rm -rf through a symlinked
     # root would delete the link target's contents.
     if [ -L "$HOME/.dsh/profiles" ]; then
