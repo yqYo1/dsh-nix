@@ -129,6 +129,6 @@ stdenv.mkDerivation {
     homepage = "https://github.com/deepseek-ai/deepseek-harness";
     license = lib.licenses.mit;
     mainProgram = "dsh";
-    platforms = lib.platforms.all;
+    platforms = lib.platforms.linux;
   };
 }

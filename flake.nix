@@ -52,7 +52,8 @@
     }:
     let
       inherit (nixpkgs) lib;
-      supportedSystems = import systems;
+      # Official support is Linux-only; Darwin is not built or tested here.
+      supportedSystems = lib.filter (system: lib.hasSuffix "linux" system) (import systems);
       forAllSystems = f: lib.genAttrs supportedSystems f;
       treefmtEval = forAllSystems (
         system: treefmt-nix.lib.evalModule nixpkgs.legacyPackages.${system} ./treefmt.nix

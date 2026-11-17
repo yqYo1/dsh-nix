@@ -30,7 +30,9 @@
       inherit (nixpkgs) lib;
       # Supported systems always track the parent flake — no flake-utils,
       # no independent systems pin.
-      supportedSystems = import dsh-nix.inputs.systems;
+      supportedSystems = lib.filter (system: lib.hasSuffix "linux" system) (
+        import dsh-nix.inputs.systems
+      );
       forAllSystems = f: lib.genAttrs supportedSystems f;
     in
     {
