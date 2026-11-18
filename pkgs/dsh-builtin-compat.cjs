@@ -77,17 +77,31 @@ try {
   // Derive the packaged app-boot anchor from this file's installed location
   // ($out/lib/dsh-builtin-compat.cjs -> $out/packages/boot/app-boot/...);
   // never hardcode a store path.
-  const anchor = path.join(
-    __dirname,
-    "..",
-    "packages",
-    "boot",
-    "app-boot",
-    "lib",
-    "index.js",
-  );
-  if (!fs.existsSync(anchor)) {
-    throw new Error(`packaged app-boot anchor not found: ${anchor}`);
+  const anchorCandidates = [
+    path.join(
+      __dirname,
+      "..",
+      "packages",
+      "boot",
+      "app-boot",
+      "lib",
+      "index.js",
+    ),
+    path.join(
+      __dirname,
+      "..",
+      "node_modules",
+      "@deepseek-ai",
+      "dsh-app-boot",
+      "lib",
+      "index.js",
+    ),
+  ];
+  const anchor = anchorCandidates.find((candidate) => fs.existsSync(candidate));
+  if (anchor === undefined) {
+    throw new Error(
+      `packaged app-boot anchor not found: ${anchorCandidates.join(", ")}`,
+    );
   }
   // Resolve through the real packaged tree so app-boot's later
   // `createRequire(import.meta.url)(...)` hits the same cached instance.

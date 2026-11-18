@@ -1,5 +1,6 @@
-# The DeepSeek Harness CLI as a Nix package: pnpm monorepo build of the
-# deepseek-harness repo, producing `bin/dsh`.
+# The DeepSeek Harness CLI as a Nix package: a build derivation with the
+# full development closure, and a separate runtime derivation that consumes
+# only the built workspace and a production dependency closure.
 #
 # - `fetchPnpmDeps` materialises the pnpm store from pnpm-lock.yaml.  Call
 #   sites override it with the pinned fetch support (flake input
@@ -40,69 +41,113 @@ let
     fetcherVersion = 4;
     hash = "sha256-dJNfmdcjq6UOvxeAvUSRtgLGxqcF6TVSFrEEh5gBi+k=";
   };
+
+  # Build-time closure: devDependencies, TypeScript, node-gyp and tests are
+  # all legitimate here.  Its output is the complete built workspace used by
+  # the test harness and profile composition; it is never the user runtime.
+  dshBuild = stdenv.mkDerivation {
+    pname = "dsh-build";
+    inherit version src;
+
+    nativeBuildInputs = [
+      nodejs
+      pnpm_11
+      pnpmConfigHook
+      python3
+      node-gyp
+      jq
+    ];
+    inherit pnpmDeps;
+    env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
+
+    buildPhase = ''
+      runHook preBuild
+      pnpm install --offline --frozen-lockfile
+      # node-pty ships no linux prebuilds in its npm tarball, so its install
+      # script must fall back to node-gyp — which needs python3 and the node
+      # headers. Build it explicitly: pty.node and the unix spawn-helper both
+      # come out of this rebuild, and the dsh patch loads both from
+      # build/Release.
+      (
+        cd node_modules/.pnpm/node-pty@*/node_modules/node-pty
+        export HOME="$TMPDIR"
+        export npm_config_nodedir=${nodejs}
+        export npm_config_python=python3
+        node-gyp rebuild
+      )
+      pnpm run build
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp -r . "$out/"
+      rm -rf "$out/.git" "$out/.github" "$out/website" \
+        "$out/.agents" "$out/.claude" \
+        "$out/node_modules/.pnpm/node_modules/@deepseek-ai/website" \
+        "$out/node_modules/.cache"
+      mkdir -p "$out/share/dsh-nix"
+      find "$out" -path '*/node_modules' -prune -o -name package.json -print \
+        | while IFS= read -r manifest; do
+            name=$(jq -r '.name // empty' "$manifest" 2>/dev/null) || continue
+            [ -n "$name" ] || continue
+            printf '%s\t%s\n' "$name" "$(dirname "$manifest")"
+          done \
+        | sort -u > "$out/share/dsh-nix/bundles.tsv"
+      install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
+      runHook postInstall
+    '';
+
+    passthru = {
+      inherit pnpmDeps;
+    };
+  };
 in
 stdenv.mkDerivation {
   pname = "dsh";
-  inherit version src;
+  inherit version;
+  src = dshBuild;
+  outputs = [
+    "out"
+    "profileMeta"
+  ];
+  # The production workspace still carries pnpm peer/type links that are not
+  # runtime dependencies; remove the dangling ones instead of shipping an
+  # unnecessary full development tree.
+  dontCheckForBrokenSymlinks = true;
 
+  # Runtime build inputs only: no TypeScript, node-gyp, python3 or test tools.
   nativeBuildInputs = [
     nodejs
     pnpm_11
     pnpmConfigHook
     makeBinaryWrapper
-    python3
-    node-gyp
     jq
   ];
   inherit pnpmDeps;
-  env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
-
-  buildPhase = ''
-    runHook preBuild
-    pnpm install --offline --frozen-lockfile
-    # node-pty ships no linux prebuilds in its npm tarball, so its install
-    # script must fall back to node-gyp — which needs python3 and the node
-    # headers. Build it explicitly: pty.node and the unix spawn-helper both
-    # come out of this rebuild, and the dsh patch loads both from
-    # build/Release.
-    (
-      cd node_modules/.pnpm/node-pty@*/node_modules/node-pty
-      export HOME="$TMPDIR"
-      export npm_config_nodedir=${nodejs}
-      export npm_config_python=python3
-      node-gyp rebuild
-    )
-    pnpm run build
-    runHook postBuild
+  env.CI = "true";
+  pnpmInstallFlags = [ "--prod" ];
+  postUnpack = ''
+    find "$sourceRoot" -type d -name node_modules -prune -exec rm -rf {} +
   '';
 
   installPhase = ''
     runHook preInstall
-    mkdir -p "$out"
-    # The CLI resolves workspace packages through the pnpm node_modules
-    # layout at runtime, so ship the built repo together with node_modules.
-    cp -r . "$out/"
-    rm -rf "$out/.git" "$out/.github" "$out/website" \
-      "$out/.agents" "$out/.claude" \
-      "$out/node_modules/.pnpm/node_modules/@deepseek-ai/website" \
-      "$out/node_modules/.cache"
-    # Emit a package-name -> package-root index once, as part of the dsh
-    # output.  Profile builds need on-demand bundle roots; walking this
-    # multi-gigabyte installation per bundle is unnecessary and makes profile
-    # builds depend on the installation size.
-    mkdir -p "$out/share/dsh-nix"
-    find "$out" -path '*/node_modules' -prune -o -name package.json -print \
-      | while IFS= read -r manifest; do
-          name=$(jq -r '.name // empty' "$manifest" 2>/dev/null) || continue
-          [ -n "$name" ] || continue
-          printf '%s\t%s\n' "$name" "$(dirname "$manifest")"
-        done \
-      | sort -u > "$out/share/dsh-nix/bundles.tsv"
-    mkdir -p "$out/bin"
-    # Node builtin compat (introduced with rc.2): ship the
-    # narrowly-triggered
-    # `--expose-internals` fallback preload next to the CLI and load it
-    # before the entrypoint. Paths derive from $out at build time.
+
+    # Consume only the built workspace, and copy only the apps and packages
+    # that the CLI runtime needs.  The full dshBuild output remains the
+    # test/dev-only derivation.
+    mkdir -p "$out/apps"
+    cp -r "$src/apps/cli" "$src/apps/web" "$out/apps/"
+    cp -r "$src/packages" "$src/vendor" "$src/native" "$src/scripts" \
+      "$src/package.json" "$src/pnpm-lock.yaml" "$src/pnpm-workspace.yaml" \
+      "$src/patches" "$out/"
+    chmod -R u+w "$out"
+    pnpm --dir "$out" --recursive --prod install --offline --frozen-lockfile \
+      --ignore-scripts --config.confirm-modules-purge=false
+
+    mkdir -p "$out/bin" "$out/lib"
     install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
     makeBinaryWrapper "${nodejs}/bin/node" "$out/bin/dsh" \
       --add-flags "--expose-internals" \
@@ -114,14 +159,21 @@ stdenv.mkDerivation {
           nodejs
         ]
       }"
+
+    # Small metadata for profile generation, derived from the full build
+    # output rather than from the runtime installation.
+    mkdir -p "$profileMeta/share/dsh-nix"
+    node --expose-internals --require "$src/lib/dsh-builtin-compat.cjs" \
+      "${../lib/read-profile-template.mjs}" "$src" \
+      > "$profileMeta/share/dsh-nix/profile-templates.json"
     runHook postInstall
   '';
 
-  # Exposed so consumers and tests can target the deps FOD directly (e.g.
-  # `nix build .#dsh.pnpmDeps --rebuild` to re-validate the pinned hash
-  # against a fresh fetch).
+  # Exposed so consumers and tests can target the pinned FOD and the full
+  # build/test tree directly.
   passthru = {
     inherit pnpmDeps;
+    dev = dshBuild;
   };
 
   meta = {

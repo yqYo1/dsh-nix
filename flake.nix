@@ -261,7 +261,7 @@
               {
                 nativeBuildInputs = [ pkgs.jq ];
                 src = dsh;
-                install = self.packages.${system}.dsh;
+                install = self.packages.${system}.dsh.dev;
                 names = builtins.toJSON onDemandBundles;
               }
               ''
@@ -311,7 +311,7 @@
               {
                 nativeBuildInputs = [ pkgs.jq ];
                 src = dsh;
-                install = self.packages.${system}.dsh;
+                install = self.packages.${system}.dsh.dev;
                 shipped = builtins.toJSON inBoxNames;
               }
               ''
@@ -367,13 +367,12 @@
                   pkgs.nodejs
                   pkgs.jq
                 ];
-                install = self.packages.${system}.dsh;
+                install = self.packages.${system}.dsh.profileMeta;
                 names = builtins.toJSON profileTemplates;
                 shipped = builtins.toJSON inBoxNames;
               }
               ''
-                templates=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
-                  ${./lib/read-profile-template.mjs} "$install") || exit 1
+                templates=$(node ${./lib/read-profile-template.mjs} "$install") || exit 1
                 printf '%s\n' "$names" | jq -r '.[]' | sort > "$TMPDIR/want.txt"
                 printf '%s' "$templates" | jq -r 'keys[]' | sort > "$TMPDIR/have.txt"
                 if ! diff -u "$TMPDIR/want.txt" "$TMPDIR/have.txt"; then
@@ -403,7 +402,8 @@
               };
               artifact = profilesLib.buildProfile {
                 inherit pkgs profile;
-                install = self.packages.${system}.dsh;
+                install = self.packages.${system}.dsh.dev;
+                profileMeta = self.packages.${system}.dsh.profileMeta;
               };
             in
             pkgs.runCommand "dsh-profile-template-check"
@@ -460,7 +460,8 @@
               };
               artifact = profilesLib.buildProfile {
                 inherit pkgs profile;
-                install = self.packages.${system}.dsh;
+                install = self.packages.${system}.dsh.dev;
+                profileMeta = self.packages.${system}.dsh.profileMeta;
               };
             in
             pkgs.runCommand "dsh-profile-template-extension-check"
@@ -758,7 +759,8 @@
               };
               artifact = profilesLib.buildProfile {
                 inherit pkgs profile;
-                install = self.packages.${system}.dsh;
+                install = self.packages.${system}.dsh.dev;
+                profileMeta = self.packages.${system}.dsh.profileMeta;
               };
             in
             pkgs.runCommand "dsh-profile-official-on-demand-check"
