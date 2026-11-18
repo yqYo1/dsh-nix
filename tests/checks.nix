@@ -664,6 +664,26 @@ in
   # Counterexample: web-app without base must fail the boot check
   # with dsh's own fail-loud (pending services), proving the check
   # catches the composition error at build time.
+  # The user runtime must not carry test-only workspace packages or test
+  # runners.  This is a regression guard for the build/runtime split.
+  runtime-clean =
+    pkgs.runCommand "dsh-runtime-clean-check"
+      {
+        nativeBuildInputs = [ pkgs.findutils ];
+        dsh = dshPackage;
+      }
+      ''
+        if [ -e "$dsh/packages/test-support" ]; then
+          echo "runtime-clean: test-support is present in the runtime artifact" >&2
+          exit 1
+        fi
+        if find "$dsh" -type d \( -name vitest -o -name playwright -o -name jsdom -o -name '@testing-library' \) -print -quit | grep -q .; then
+          echo "runtime-clean: test runner package is present in the runtime artifact" >&2
+          exit 1
+        fi
+        touch "$out"
+      '';
+
   profile-boot-web-nobase =
     pkgs.runCommand "dsh-profile-boot-web-nobase-check"
       {
