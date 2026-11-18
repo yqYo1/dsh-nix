@@ -16,9 +16,9 @@
 #   .negativeCollisionArtifact  the same raw derivation twice — must keep
 #                              failing loud on the duplicate packageName.
 #
-# Reproduce the positive gate (from the repo root, no lock writes):
+# Reproduce the positive gate (from the tests dir, no lock writes):
 #   nix build --accept-flake-config --no-update-lock-file \
-#     --no-write-lock-file .#checks.x86_64-linux.profile-user-npm
+#     --no-write-lock-file ./tests#checks.x86_64-linux.profile-user-npm
 # Probe a negative (each must FAIL to build; <repo> is this repository's
 # worktree root):
 #   nix build --impure --accept-flake-config --no-update-lock-file \

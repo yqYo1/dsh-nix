@@ -8,8 +8,8 @@
 #   nix build --offline --option build-use-substitutes false \
 #     --impure --expr '(import ./tests/profile-regression.nix { pkgs = import <nixpkgs> {}; }).check' \
 #     --out-link /tmp/dsh-regression-check
-# Or via flake legacyPackages:
-#   nix build --offline .#checks.x86_64-linux.profile-regression
+# Or via the tests flake check:
+#   nix build --offline ./tests#checks.x86_64-linux.profile-regression
 #   (once wired; this file itself needs no flake change to evaluate)
 #
 # What is asserted (see `check` below):
