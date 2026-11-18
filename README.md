@@ -3,6 +3,8 @@
 Build [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) with Nix and manage profiles and Home Manager configuration declaratively.
 The DSH source is pinned as a flake input; the current package is `0.2.2-rc.3`.
 
+Supported systems are `x86_64-linux` and `aarch64-linux`. Darwin is not built or tested; the macOS-only CUA bundle remains a catalog entry, not a supported package platform.
+
 - **`pkgs.dsh`**: the CLI package, built from the pnpm monorepo.
 - **profile builder**: composes profiles from bundles, Nix packages, and plugin paths at build time.
 - **official plugins (bundles)**: every official bundle — the installable plugin unit in dsh — is usable by profile name: in-box bundles resolve from the installation and the on-demand bundles are linked from the installed dsh tree (built from the pinned source). Official plugin packages that ship without a bundle of their own mount through profile patch rows. For official packages, users package nothing.
