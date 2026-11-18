@@ -278,6 +278,8 @@ let
       programs.dsh = {
         enable = true;
         package = externalPackage;
+        # This harness exercises explicit cleanup after gen2 removes profiles.
+        removeOrphanProfiles = true;
         inherit profiles settings homePatchesFile;
       };
     };

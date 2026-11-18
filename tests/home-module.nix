@@ -144,6 +144,9 @@ in
     (lib.hasInfix "dsh-profile-agent" activation)
     # Removed profiles are cleaned: manifest tracks managed names.
     (lib.hasInfix ".dsh-nix-managed-profiles" activation)
+    # Orphan cleanup is opt-in; the default keeps existing profiles.
+    (config.programs.dsh.removeOrphanProfiles == false)
+    (lib.hasInfix "removeOrphanProfiles=0" activation)
     # The CLI installs EXACTLY unmodified: derivation identity, not shape.
     (builtins.length config.home.packages == 1)
     (builtins.head config.home.packages == externalPackage)
@@ -174,6 +177,8 @@ in
     (lib.hasInfix ".dsh-nix-stamp" activation)
     (lib.hasInfix "dsh-profile-agent" activation)
     (lib.hasInfix ".dsh-nix-managed-profiles" activation)
+    (config.programs.dsh.removeOrphanProfiles == false)
+    (lib.hasInfix "removeOrphanProfiles=0" activation)
     (builtins.length config.home.packages == 1)
     (builtins.head config.home.packages == externalPackage)
     ((builtins.head config.home.packages).outPath == externalPackage.outPath)
