@@ -181,6 +181,10 @@ stdenv.mkDerivation {
          -o -name 'jsdom*' -o -name '@testing-library*' -o -name 'fast-check*' \) \
       -prune -exec rm -rf {} + || true
     find "$out" -path '*/node_modules/.bin/vitest' -delete || true
+    find "$out" -type d \
+      \( -name 'vitest' -o -name '@vitest' -o -name 'playwright' \
+         -o -name 'jsdom' -o -name '@testing-library' -o -name 'fast-check' \) \
+      -prune -exec rm -rf {} + || true
 
     mkdir -p "$out/bin" "$out/lib"
     install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
