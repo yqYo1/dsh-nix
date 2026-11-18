@@ -103,11 +103,35 @@ let
       inherit pnpmDeps;
     };
   };
+
+  # Runtime source view: only the built apps, packages and metadata needed by
+  # the user package.  Its direct input is small; the full dshBuild closure
+  # remains a build/test input.
+  dshRuntimeSrc = stdenv.mkDerivation {
+    pname = "dsh-runtime-src";
+    inherit version;
+    src = dshBuild;
+    dontCheckForBrokenSymlinks = true;
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/apps"
+      cp -r "$src/apps/cli" "$src/apps/web" "$out/apps/"
+      cp -r "$src/packages" "$src/vendor" "$src/native" "$src/scripts" \
+        "$src/lib" "$src/package.json" "$src/pnpm-lock.yaml" \
+        "$src/pnpm-workspace.yaml" "$src/patches" "$out/"
+      chmod -R u+w "$out"
+      # Package-local pnpm views are required for workspace peer resolution;
+      # only the root view is rebuilt by the runtime production install.
+      rm -rf "$out/node_modules"
+      runHook postInstall
+    '';
+  };
 in
 stdenv.mkDerivation {
   pname = "dsh";
   inherit version;
-  src = dshBuild;
+  src = dshRuntimeSrc;
   outputs = [
     "out"
     "profileMeta"
@@ -163,8 +187,8 @@ stdenv.mkDerivation {
     # Small metadata for profile generation, derived from the full build
     # output rather than from the runtime installation.
     mkdir -p "$profileMeta/share/dsh-nix"
-    node --expose-internals --require "$src/lib/dsh-builtin-compat.cjs" \
-      "${../lib/read-profile-template.mjs}" "$src" \
+    node --expose-internals --require "${dshBuild}/lib/dsh-builtin-compat.cjs" \
+      "${../lib/read-profile-template.mjs}" "${dshBuild}" \
       > "$profileMeta/share/dsh-nix/profile-templates.json"
     runHook postInstall
   '';
