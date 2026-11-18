@@ -124,6 +124,10 @@ let
       # Package-local pnpm views are required for workspace peer resolution;
       # only the root view is rebuilt by the runtime production install.
       rm -rf "$out/node_modules"
+      # The build tree contains test-only workspace packages and test source;
+      # they are not part of the runtime package.
+      rm -rf "$out/packages/test-support"
+      find "$out" -type d -name tests -prune -exec rm -rf {} +
       runHook postInstall
     '';
   };
@@ -170,6 +174,13 @@ stdenv.mkDerivation {
     chmod -R u+w "$out"
     pnpm --dir "$out" --recursive --prod install --offline --frozen-lockfile \
       --ignore-scripts --config.confirm-modules-purge=false
+    # Remove test-runner views that the production install may have carried
+    # through the package-local pnpm layout.
+    find "$out" -path '*/node_modules/.pnpm/*' \
+      \( -name 'vitest*' -o -name '@vitest*' -o -name 'playwright*' \
+         -o -name 'jsdom*' -o -name '@testing-library*' -o -name 'fast-check*' \) \
+      -prune -exec rm -rf {} + || true
+    find "$out" -path '*/node_modules/.bin/vitest' -delete || true
 
     mkdir -p "$out/bin" "$out/lib"
     install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
