@@ -38,6 +38,7 @@
  *   args...        extra command-line args provided via cmdlineArgs
  *                  (web: --port 0 to avoid binding 3080; headless: the task)
  */
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeFileSync } from "node:fs";
@@ -50,9 +51,24 @@ if (!install || !name || !home) {
   );
   process.exit(2);
 }
-const installAnchor = join(install, "apps/cli/package.json");
+// The full workspace keeps packages under packages/...; the production
+// deployment puts the same packages under node_modules/@deepseek-ai/... .
+const installAnchor = existsSync(join(install, "apps/cli/package.json"))
+  ? join(install, "apps/cli/package.json")
+  : join(install, "package.json");
 process.env.DSH_HOME = home;
-const lib = (pkg) => pathToFileURL(join(install, pkg, "lib/index.js")).href;
+const packageNames = {
+  "packages/boot/app-boot": "@deepseek-ai/dsh-app-boot",
+  "packages/boot/cmdline": "@deepseek-ai/dsh-cmdline",
+  "packages/util/launch-environment": "@deepseek-ai/dsh-launch-environment",
+};
+const lib = (pkg) => {
+  const local = join(install, pkg, "lib/index.js");
+  if (existsSync(local)) return pathToFileURL(local).href;
+  return pathToFileURL(
+    join(install, "node_modules", packageNames[pkg], "lib/index.js"),
+  ).href;
+};
 
 const {
   boot,

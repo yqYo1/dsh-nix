@@ -260,7 +260,8 @@ let
     profilesLib.buildProfile {
       pkgs = buildPkgs;
       profile = declaration;
-      install = cfg.package;
+      install = cfg.package.dev or cfg.package;
+      profileMeta = cfg.package.profileMeta or null;
     }
   ) declarations;
 

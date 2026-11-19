@@ -79,12 +79,16 @@ let
       pkgs,
       profile,
       install ? null,
+      profileMeta ? null,
     }:
     let
       template = profile.extends or null;
       installBundleNames = profile.installBundles or [ ];
-      needsInstall = template != null || installBundleNames != [ ];
+      # Template bundles can come from the small profileMeta output; only
+      # on-demand bundle resolution needs the full installation.
+      needsInstall = installBundleNames != [ ] || (template != null && profileMeta == null);
       installArg = if !needsInstall || install == null then "" else toString install;
+      templateSource = if profileMeta != null then toString profileMeta else installArg;
       classified = profile.plugins;
       nixEntries = builtins.filter (entry: entry.kind == "nix") classified;
       nixMetadata = map (entry: {
@@ -133,13 +137,18 @@ let
         bundles='[]'
         install=${lib.escapeShellArg installArg}
         template=${lib.escapeShellArg (if template == null then "" else template)}
+        templateSource=${lib.escapeShellArg (if template == null then "" else templateSource)}
         if [ -n "$template" ]; then
-          if [ -z "$install" ] || [ ! -f "$install/lib/dsh-builtin-compat.cjs" ]; then
-            echo "dsh profile: template $template needs the dsh installation" >&2
+          if [ -z "$templateSource" ] || { [ ! -f "$templateSource/share/dsh-nix/profile-templates.json" ] && [ ! -f "$templateSource/packages/util/official-bundles/lib/index.js" ]; }; then
+            echo "dsh profile: template $template needs profileMeta or the dsh installation" >&2
             exit 1
           fi
-          templateBundles=$(node --expose-internals --require "$install/lib/dsh-builtin-compat.cjs" \
-            ${./read-profile-template.mjs} "$install" "$template") || exit 1
+          if [ -f "$templateSource/share/dsh-nix/profile-templates.json" ]; then
+            templateBundles=$(node ${./read-profile-template.mjs} "$templateSource" "$template") || exit 1
+          else
+            templateBundles=$(node --expose-internals --require "$templateSource/lib/dsh-builtin-compat.cjs" \
+              ${./read-profile-template.mjs} "$templateSource" "$template") || exit 1
+          fi
           printf '%s' "$templateBundles" | jq -e 'type == "array" and length > 0' >/dev/null \
             || { echo "dsh profile: template $template returned no bundles" >&2; exit 1; }
           bundles=$(printf '%s' "$templateBundles" | jq -c '.')
