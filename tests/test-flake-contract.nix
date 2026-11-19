@@ -7,8 +7,9 @@
 #   3. tests flake.lock does not pin home-manager to the expected rev, or
 #      its nixpkgs edge is not a follows-edge onto dsh-nix/nixpkgs;
 #   4. public identity regresses: homeManagerModules.dsh, overlays.default,
-#      or packages.<system>.default is missing, or the root check set is
-#      not exactly the original HM-independent checks;
+#      or packages.<system>.default is missing, the root check set is
+#      not exactly the non-test checks, or a moved test check is missing
+#      from the tests flake;
 #   5. nested pins for dsh/nixpkgs/systems recorded in tests/flake.lock go
 #      stale relative to the parent on-disk flake.lock, or unexpected extra
 #      inputs appear in the tests lock.
@@ -18,13 +19,21 @@
   system,
   dshNix,
   rootSrc,
+  testsCheckNames,
   testsLock,
 }:
 
 let
-  # The HM-independent checks that must stay in the root flake,
+  # The non-test checks that stay in the root flake,
   # exactly (sorted: builtins.attrNames returns sorted names).
-  hmIndependentChecks = [
+  rootChecks = [
+    "treefmt"
+    "version-consistency"
+  ];
+
+  # The test/profile checks that moved out of the root flake and must be
+  # owned by the tests flake (sorted).
+  movedTestChecks = [
     "boot-checker-wiring"
     "home-module"
     "official-bundles"
@@ -42,8 +51,6 @@ let
     "profile-template-extension"
     "profile-templates"
     "profile-user-npm"
-    "treefmt"
-    "version-consistency"
   ];
 
   fail = msg: throw "test-flake-contract: ${msg}";
@@ -182,8 +189,14 @@ let
       fail "parent flake has no checks.${system}"
   );
   c14 =
-    if parentCheckNames != hmIndependentChecks then
-      fail "parent checks.${system} must be exactly the HM-independent checks ${builtins.toJSON hmIndependentChecks}; got: ${builtins.toJSON parentCheckNames}"
+    if parentCheckNames != rootChecks then
+      fail "parent checks.${system} must be exactly the non-test checks ${builtins.toJSON rootChecks}; got: ${builtins.toJSON parentCheckNames}"
+    else
+      true;
+  missingTestsChecks = builtins.filter (name: !(builtins.elem name testsCheckNames)) movedTestChecks;
+  c15 =
+    if missingTestsChecks != [ ] then
+      fail "tests flake is missing moved test checks: ${builtins.toJSON missingTestsChecks}"
     else
       true;
 
@@ -202,9 +215,9 @@ let
       fail "stale nested pin: tests '${name}' rev '${b}' != parent on-disk rev '${a}'"
     else
       true;
-  c15 = stalePin "nixpkgs";
-  c16 = stalePin "systems";
-  c17 = stalePin "dsh";
+  c16 = stalePin "nixpkgs";
+  c17 = stalePin "systems";
+  c18 = stalePin "dsh";
 
   allOk = lib.all (x: x) [
     c1
@@ -224,6 +237,7 @@ let
     c15
     c16
     c17
+    c18
   ];
 
 in
@@ -259,7 +273,8 @@ pkgs.runCommand "dsh-test-flake-contract"
     mkdir -p "$out"
     {
       echo "test-flake-contract: passed"
-      printf 'parent checks: %s\n' ${lib.escapeShellArg (builtins.toJSON hmIndependentChecks)}
+      printf 'parent checks: %s\n' ${lib.escapeShellArg (builtins.toJSON rootChecks)}
+      printf 'tests checks: %s\n' ${lib.escapeShellArg (builtins.toJSON testsCheckNames)}
       echo "home-manager rev: ${testsHmRev}"
     } > "$out/result.txt"
   ''

@@ -4,10 +4,12 @@
 # the same gates as the PR so a post-merge regression is caught immediately.
 # The gates run strictly in sequence in ONE job (no continue-on-error, no
 # masked gates — a red gate stops everything after it):
-#   1. root `nix flake check` (HM-independent: profile artifact shape
-#      assertions, dsh boot checks for every profile including the fail-loud
-#      counterexample, module evaluation),
-#   2. tests `nix flake check` (pinned-HM regression from tests/flake.lock),
+#   1. root `nix flake check` (non-test checks only: treefmt formatting,
+#      version-consistency lockstep),
+#   2. tests `nix flake check` (all test/profile checks from
+#      tests/flake.lock-pinned inputs: artifact shape assertions, dsh boot
+#      checks for every profile including the fail-loud counterexample,
+#      module evaluation, pinned-HM regression),
 #   3. real host Home Manager E2E (scripts/hm-e2e.sh via the tests devShell:
 #      genuine pinned-HM activation + profile install + dsh boot),
 # plus an explicit immutability assertion that the `dsh` input is locked to a
@@ -74,12 +76,12 @@ jobs:
           set -euo pipefail
           nix flake metadata --no-update-lock-file --no-write-lock-file --accept-flake-config --json | jq -e '.locks.nodes.dsh.locked.rev | strings | length == 40' >/dev/null
 
-      - name: Flake check (root, HM-independent)
+      - name: Flake check (root, non-test checks)
         run: |
           set -euo pipefail
           nix flake check --no-update-lock-file --no-write-lock-file --accept-flake-config --system "${{ steps.arch.outputs.system }}"
 
-      - name: Flake check (tests, pinned-HM regression)
+      - name: Flake check (tests, test/profile + pinned-HM checks)
         run: |
           set -euo pipefail
           nix flake check ./tests --no-update-lock-file --no-write-lock-file --accept-flake-config --system "${{ steps.arch.outputs.system }}"

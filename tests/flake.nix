@@ -40,6 +40,14 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          # Test/profile checks moved out of the root flake live here;
+          # canonical values (profilesLib, officialBundles, packages, dsh
+          # source) come from the parent flake via dsh-nix.
+          testChecks = import ./checks.nix {
+            inherit pkgs lib system;
+            dshNix = dsh-nix;
+            rootSrc = dsh-nix.outPath;
+          };
         in
         {
           # NOTE: the test file (tests/hm-real.nix) is reached through the
@@ -69,9 +77,14 @@
               ;
             dshNix = dsh-nix;
             rootSrc = dsh-nix.outPath;
+            testsCheckNames = builtins.attrNames testChecks ++ [
+              "home-manager-integration"
+              "test-flake-contract"
+            ];
             testsLock = builtins.fromJSON (builtins.readFile ./flake.lock);
           };
         }
+        // testChecks
       );
 
       devShells = forAllSystems (

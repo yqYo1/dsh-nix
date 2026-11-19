@@ -2,7 +2,7 @@
 # home-manager options and assert composition, activation content, and the
 # install-exactly contract. Run: nix-instantiate --eval --strict --json
 #   tests/home-module.nix --arg pkgs 'import <nixpkgs> {}'
-# (or via the root flake check: nix build .#checks.<system>.home-module)
+# (or via the tests flake check: nix build ./tests#checks.<system>.home-module)
 { pkgs }:
 
 let
