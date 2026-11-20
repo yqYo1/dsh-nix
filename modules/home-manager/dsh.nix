@@ -431,13 +431,21 @@ let
     # Rewrite the manifest only when it changed, so repeat activations are
     # byte-identical no-ops (command substitution strips trailing newlines
     # on both sides, keeping the comparison exact).
-    new_managed=$(printf '%s\n' ${lib.escapeShellArgs currentNames}; printf '%s' "$retained")
+    new_managed=""
+    if [ ${toString (builtins.length currentNames)} -gt 0 ]; then
+      new_managed=$(printf '%s\n' ${lib.escapeShellArgs currentNames})
+    fi
+    new_managed="$new_managed$retained"
     if [ -L "${managedFile}" ]; then
       echo "dshProfiles: refusing to write through symlinked manifest ${managedFile}" >&2
       exit 1
     fi
     if [ ! -f "${managedFile}" ] || [ "$(cat "${managedFile}")" != "$new_managed" ]; then
-      printf '%s\n' ${lib.escapeShellArgs currentNames} > "${managedFile}"
+      if [ -n "$new_managed" ]; then
+        printf '%s\n' "$new_managed" > "${managedFile}"
+      else
+        : > "${managedFile}"
+      fi
     fi
     fi
   '';
