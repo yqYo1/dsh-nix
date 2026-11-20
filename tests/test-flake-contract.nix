@@ -1,18 +1,3 @@
-# Tests-only separation contract for the dsh-nix / tests subflake split.
-#
-# Fails evaluation (explicit `throw`) when any of these is violated:
-#   1. root flake.nix reintroduces a test-only `home-manager` input or the
-#      `home-manager-integration` check wiring;
-#   2. root flake.lock contains a `home-manager` node;
-#   3. tests flake.lock does not pin home-manager to the expected rev, or
-#      its nixpkgs edge is not a follows-edge onto dsh-nix/nixpkgs;
-#   4. public identity regresses: homeManagerModules.dsh, overlays.default,
-#      or packages.<system>.default is missing, the root check set is
-#      not exactly the non-test checks, or a moved test check is missing
-#      from the tests flake;
-#   5. nested pins for dsh/nixpkgs/systems recorded in tests/flake.lock go
-#      stale relative to the parent on-disk flake.lock, or unexpected extra
-#      inputs appear in the tests lock.
 {
   pkgs,
   lib,

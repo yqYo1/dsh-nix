@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/**
- * tests/boot-checker-wiring.mjs — MOCK-WIRING regression tests for
- * scripts/check-profile.mjs.  These do NOT prove a real pinned dsh boot: the
- * dsh-install tree here is a mock whose lib modules record the checker's
- * calls instead of mounting plugins.  What they pin is the checker's
- * pinned-dsh contract wiring against apps/cli/src/profile-boot.ts:
- * prepare → resolve → compose → boot+dispose, with fail-loud propagation.
- *
- * Scope note: the checker is boot+dispose only — it never commits launcher
- * readiness and never starts an application task itself.  Withholding
- * readiness alone does NOT prove no plugin scheduled work: pinned-dsh headless
- * starts its run during apply without using appReady, so a hard
- * no-network guard for real-headless external actions is a separate,
- * still-open fixture decision (parent owns it).  These mocks only prove
- * the registrar never fires and a nonzero appExit request fails the check.
- *
- * Run: nix develop -c -- node tests/boot-checker-wiring.mjs
- * (also suitable as a `nix flake check` derivation running the same command
- * with nodejs in nativeBuildInputs; needs no network and no real package.)
- */
 import { spawnSync } from "node:child_process";
 import {
   mkdtempSync,

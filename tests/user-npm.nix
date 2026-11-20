@@ -1,29 +1,3 @@
-# Continuous regression for genuine user-declared buildNpmPackage plugins.
-#
-# The user plugin is the RAW buildNpmPackage derivation — no installedRoot
-# subpath selectors or hand-rolled npm layouts in the genuine positive
-# path. The standard manifest lives at
-# $out/lib/node_modules/<name>/package.json, not at $out/package.json.
-# The production builder must resolve that root while preserving closure.
-#
-# Args: { pkgs, dshPackage, checker }
-#   checker is ./scripts/check-profile.mjs from the repo root.
-# Exposes: .check (positive gate), .artifact / .profile / .userPkg, plus
-# separately-buildable expected-failure derivations (NOT checks):
-#   .negativeMissingArtifact   derivation with no package.json anywhere —
-#                              must keep failing loud with the root
-#                              resolver in place.
-#   .negativeCollisionArtifact  the same raw derivation twice — must keep
-#                              failing loud on the duplicate packageName.
-#
-# Reproduce the positive gate (from the tests dir, no lock writes):
-#   nix build --accept-flake-config --no-update-lock-file \
-#     --no-write-lock-file ./tests#checks.x86_64-linux.profile-user-npm
-# Probe a negative (each must FAIL to build; <repo> is this repository's
-# worktree root):
-#   nix build --impure --accept-flake-config --no-update-lock-file \
-#     --no-write-lock-file --expr \
-#     'let f = builtins.getFlake "path:<repo>"; pkgs = f.inputs.nixpkgs.legacyPackages.x86_64-linux; in (import (f.outPath + "/tests/user-npm.nix") { inherit pkgs; dshPackage = f.packages.x86_64-linux.dsh; checker = f.outPath + "/scripts/check-profile.mjs"; }).negativeMissingArtifact'
 {
   pkgs,
   dshPackage,

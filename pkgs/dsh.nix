@@ -1,18 +1,3 @@
-# The DeepSeek Harness CLI as a Nix package: a build derivation with the
-# full development closure, and a separate runtime derivation that consumes
-# only the built workspace and a production dependency closure.
-#
-# - `fetchPnpmDeps` materialises the pnpm store from pnpm-lock.yaml.  Call
-#   sites override it with the pinned fetch support (flake input
-#   `nixpkgs-fetch`): the output hash below is bound to the fetch script
-#   text, so this fetch must not be instantiated from a consumer-overridden
-#   nixpkgs.
-# - `pnpmConfigHook` points the offline install at that store.
-# - The HMR service requires Node internals access, so the wrapper launches
-#   node with `--expose-internals` (dsh itself never sets this flag).
-# - `dsh plugin` forwards to pnpm on PATH (default command `pnpm`), so the
-#   wrapper prefixes a private pnpm_11 (matching upstream packageManager
-#   pnpm@11) plus nodejs for child execution. HM `cfg.package` is untouched.
 {
   lib,
   stdenv,
@@ -30,7 +15,7 @@
 let
   version = "0.2.2-rc.3";
   # The dsh client build embeds the source commit into client artifacts by
-  # shelling out to `git rev-parse HEAD` (since dsh 0.1.0-rc.8).  The nix
+  # shelling out to `git rev-parse HEAD`.  The nix
   # build is a gitless tarball with no `git` in the environment, so we feed
   # the pinned rev instead — the dsh build script honours
   # DSH_CLIENT_COMMIT_HASH and skips the git call entirely.
