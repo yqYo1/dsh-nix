@@ -262,7 +262,7 @@ let
     }:
     {
       # $USER in the check builder (task contract: username=$USER).
-      home.username = "yayoi";
+      home.username = "dsh-test";
       home.homeDirectory = "/build/dsh-home";
       home.stateVersion = "25.11";
       # Keep the ambient PATH visible inside activation (test tooling).
@@ -470,7 +470,7 @@ let
           export HOME="$work/builder-home"
           export XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state"
           export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
-          export USER=yayoi SKIP_SANITY_CHECKS=1
+          export USER=dsh-test SKIP_SANITY_CHECKS=1
           mkdir -p "$HOME"
 
           homeA=$work/homeA; homeB=$work/homeB; homeC=$work/homeC
@@ -483,7 +483,7 @@ let
 
           run_act() { # <generation> <home> [extra activate args...]
             local act=$1 home=$2; shift 2
-            env HOME="$home" USER=yayoi SKIP_SANITY_CHECKS=1 \
+            env HOME="$home" USER=dsh-test SKIP_SANITY_CHECKS=1 \
               XDG_DATA_HOME="$home/.local/share" XDG_STATE_HOME="$home/.local/state" \
               XDG_CONFIG_HOME="$home/.config" XDG_CACHE_HOME="$home/.cache" \
               bash "$act/activate" --driver-version 1 "$@"
