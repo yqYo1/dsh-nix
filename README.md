@@ -113,6 +113,7 @@ The plugin's effective root is resolved at build time.
 If the plugin directory has `package.json` at its top level, that directory is preferred; otherwise the direct package under `lib/node_modules/<name>/package.json` (including scoped packages) is searched.
 Zero or multiple candidates fail the build.
 The package name is read from the selected `package.json` `name`, not the derivation `pname`.
+Set `packageName` on a raw derivation when it is known: without it, duplicate names can only be detected when the profile is built, not during evaluation.
 The plugin's `node_modules` is preserved without moving or flattening, so transitive dependencies resolve from the plugin's existing layout.
 
 ### Plugin packages without a bundle
