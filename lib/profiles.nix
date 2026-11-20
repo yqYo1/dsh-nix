@@ -302,11 +302,11 @@ let
           if [ -z "$explicitPatch" ] || [ "$explicitPatch" = "null" ]; then
             ln -s "$effectiveRoot" "$dest"
           else
-            # Explicit patchPath must yield an rc.2-consumable bundle layer:
+            # Explicit patchPath must yield an bundle-consumable bundle layer:
             # project the package under node_modules with a manifest that
             # declares exactly the selected patch and the real patch bytes
             # beside it. A missing/escaping selection fails loud instead of a
-            # phantom bundle rc.2 would skip.
+            # phantom bundle the pinned dsh would skip.
             case "$explicitPatch" in
               /*)
                 if [ ! -f "$explicitPatch" ]; then
