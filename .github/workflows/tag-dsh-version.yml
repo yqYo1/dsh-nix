@@ -24,6 +24,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Import the tag signing key
+        env:
+          DSH_TAG_SIGNING_KEY: ${{ secrets.DSH_TAG_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DSH_TAG_SIGNING_KEY:-}" ]; then
+            echo "DSH_TAG_SIGNING_KEY is not configured; refusing to publish an unsigned tag" >&2
+            exit 1
+          fi
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DSH_TAG_SIGNING_KEY" > "$HOME/.ssh/dsh-tag-signing"
+          chmod 600 "$HOME/.ssh/dsh-tag-signing"
+          git config gpg.format ssh
+          git config user.signingkey "$HOME/.ssh/dsh-tag-signing"
+          mkdir -p "$HOME/.ssh"
+          printf 'github-actions[bot] %s\n' "$(ssh-keygen -y -f "$HOME/.ssh/dsh-tag-signing")" \
+            > "$HOME/.ssh/allowed_signers"
+          git config gpg.ssh.allowedSignersFile "$HOME/.ssh/allowed_signers"
       - name: Retag the pinned dsh version
         run: |
           set -euo pipefail
@@ -32,5 +50,6 @@ jobs:
           tag="dsh-$version"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f -a "$tag" -m "dsh $version" "$GITHUB_SHA"
+          git tag -f -s "$tag" -m "dsh $version" "$GITHUB_SHA"
+          git tag -v "$tag"
           git push --force origin "refs/tags/$tag"
