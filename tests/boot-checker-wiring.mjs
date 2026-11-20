@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
  * tests/boot-checker-wiring.mjs — MOCK-WIRING regression tests for
- * scripts/check-profile.mjs.  These do NOT prove a real rc.2 boot: the
+ * scripts/check-profile.mjs.  These do NOT prove a real pinned dsh boot: the
  * dsh-install tree here is a mock whose lib modules record the checker's
  * calls instead of mounting plugins.  What they pin is the checker's
- * rc.2 contract wiring against apps/cli/src/profile-boot.ts:
+ * pinned-dsh contract wiring against apps/cli/src/profile-boot.ts:
  * prepare → resolve → compose → boot+dispose, with fail-loud propagation.
  *
  * Scope note: the checker is boot+dispose only — it never commits launcher
  * readiness and never starts an application task itself.  Withholding
- * readiness alone does NOT prove no plugin scheduled work: rc.2 headless
+ * readiness alone does NOT prove no plugin scheduled work: pinned-dsh headless
  * starts its run during apply without using appReady, so a hard
  * no-network guard for real-headless external actions is a separate,
  * still-open fixture decision (parent owns it).  These mocks only prove
@@ -70,7 +70,7 @@ function ok(cond, label, extra) {
 
 // --- mock dsh-install tree -------------------------------------------------
 // Recording doubles: every export the checker imports is present with the
-// rc.2 name/signature; calls append JSON lines to $MOCK_LOG.  MOCK_MODE
+// pinned-dsh name/signature; calls append JSON lines to $MOCK_LOG.  MOCK_MODE
 // selects the failure to inject: ok | boot-fails | noprofile |
 // resolution-fails | dispose-fails | prepare-fails | exit-nonzero |
 // exit-zero | exit-failure-then-success | exit-success-then-failure.
@@ -376,7 +376,7 @@ const install = writeMockInstall();
 }
 
 {
-  // 7. source pin: rc.2 contract only — no removed-API fallback
+  // 7. source pin: pinned-dsh contract only — no removed-API fallback
   const src = readFileSync(CHECKER, "utf8");
   ok(
     !src.includes("healProfilesModuleFallback"),
@@ -398,14 +398,14 @@ const install = writeMockInstall();
     "reportSkippedBundles",
     "loadLayeredEnv",
   ]) {
-    ok(src.includes(api), `checker uses rc.2 API ${api}`);
+    ok(src.includes(api), `checker uses pinned-dsh API ${api}`);
   }
 }
 
 {
   // 8. readiness is registered but never fired: the checker is boot-only and
   // never starts an application task itself.  (Caveat, kept explicit: this
-  // alone does not prove a real headless plugin scheduled nothing — rc.2
+  // alone does not prove a real headless plugin scheduled nothing — the pinned dsh
   // headless starts its run during apply without appReady.  A hard
   // no-network guard for real-headless external actions stays open.)
   const home = writeHome("ready");
