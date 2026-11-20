@@ -16,6 +16,9 @@ Supported systems are `x86_64-linux` and `aarch64-linux`. Darwin is not built or
 - [Plugins](#plugins)
 - [Usage](#usage)
 - [Repository layout](#repository-layout)
+- [Architecture](docs/architecture.md)
+- [Maintenance](docs/maintenance.md)
+- [Testing](TESTING.md)
 - [Notes](#notes)
 
 ## Plugins

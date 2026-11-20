@@ -1,8 +1,3 @@
-# Self-test for modules/home-manager/dsh.nix: evaluate the module with stub
-# home-manager options and assert composition, activation content, and the
-# install-exactly contract. Run: nix-instantiate --eval --strict --json
-#   tests/home-module.nix --arg pkgs 'import <nixpkgs> {}'
-# (or via the tests flake check: nix build ./tests#checks.<system>.home-module)
 { pkgs }:
 
 let

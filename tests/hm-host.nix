@@ -1,33 +1,3 @@
-# Host E2E fixture: TESTS-flake-pinned real Home Manager activation of the
-# REAL packaged dsh, with zero Nix-CLI shims and zero faked success.
-#
-# Evaluated by scripts/hm-e2e.sh with the real Nix CLI. The caller passes
-# the pinned input sources from the tests subflake (builtins.getFlake
-# "git+file://$repo_root?dir=tests"), so the whole repository is the source
-# root and the public flake stays Home Manager-independent:
-#   import ./tests/hm-host.nix {
-#     pkgsPath = <tests-flake inputs.nixpkgs.outPath>;  # follows dsh-nix/nixpkgs
-#     hmPath   = <tests-flake inputs.home-manager.outPath>;
-#     dshSrc   = <tests-flake inputs.dsh-nix.inputs.dsh>;  # whole input: carries .rev
-#     system username homeDirectory
-#   }
-# (This fixture file itself is still imported relative to the repo checkout,
-# exactly as before.)
-#
-# The script drives this fixture in two stages. First an evaluation-only
-# gate: it asserts `checks` and reads `activationDrvPath` / expected
-# artifact paths as store-path STRINGS (toString never realises). Then the
-# real stage: the same fixture's `generation` builds for real (the dsh
-# package hash is a real pinned hash) and its ./activate runs with
-# driver 0 (default): `nix-env --profile $XDG_STATE_HOME/nix/profiles/
-# home-manager --set` performs the profile install owned by pinned Home
-# Manager, and `nix-env -i home-manager-path` installs cfg.package.
-#
-# The single `agent` profile uses ONLY tests/fixtures/lifecycle-probe (a plain
-# path plugin: no in-box bundles, no network) whose apply()
-# appends `activated` and whose dispose appends `disposed` to
-# $DSH_HOME/dsh-nix-lifecycle.log.
-#
 {
   pkgsPath,
   hmPath,
