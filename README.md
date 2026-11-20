@@ -32,7 +32,7 @@ The following forms are accepted, mixed in declaration order:
 
 ### Official bundles
 
-The official installable plugin set is the official bundle set (upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`). Every official bundle is accepted by name; users never package or hash them. The 22 installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
+The official installable plugin set is the catalog maintained in `lib/official-bundles.nix`, aligned with upstream `PROFILE_TEMPLATES` + `OPTIONAL_BUNDLES` + `ON_DEMAND_BUNDLES`. Every official bundle is accepted by name; users never package or hash them. Installation bundles are in-box names: they resolve from the dsh installation and never enter the profile's dependencies.
 
 - **bundles of the shipped profile templates** (upstream `PROFILE_TEMPLATES`, resolved from the installation):
   - `@deepseek-ai/dsh-base`
