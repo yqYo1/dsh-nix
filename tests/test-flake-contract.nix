@@ -231,6 +231,7 @@ pkgs.runCommand "dsh-test-flake-contract"
   {
     rootFlake = rootSrc + "/flake.nix";
     rootLock = rootSrc + "/flake.lock";
+    testsFlake = ./flake.nix;
     testsLock = ./flake.lock;
     nativeBuildInputs = [ pkgs.jq ];
   }
@@ -241,6 +242,10 @@ pkgs.runCommand "dsh-test-flake-contract"
     # Re-verify at build time so the realized artifact carries the evidence.
     grep -q 'inputs\.home-manager' "$rootFlake" && fail "root flake.nix declares inputs.home-manager"
     grep -q 'home-manager-integration' "$rootFlake" && fail "root flake.nix wires home-manager-integration"
+    grep -q 'testChecks = import ./checks.nix' "$testsFlake" \
+      || fail "tests flake does not import checks.nix as testChecks"
+    grep -q '// testChecks' "$testsFlake" \
+      || fail "tests flake does not merge testChecks into checks"
     jq -e 'has("nodes")' "$rootLock" > /dev/null || fail "root lock has no nodes"
     jq -e '.nodes | has("home-manager") | not' "$rootLock" > /dev/null \
       || fail "root flake.lock contains home-manager"
