@@ -655,6 +655,8 @@ in
   # catches the composition error at build time.
   # The user runtime must not carry test-only workspace packages or test
   # runners.  This is a regression guard for the build/runtime split.
+  plugin-roots = import ./plugin-roots.nix { inherit pkgs; };
+
   runtime-clean =
     pkgs.runCommand "dsh-runtime-clean-check"
       {
