@@ -54,7 +54,7 @@
 
       plugins = import ./lib/plugins.nix { inherit lib; };
       profilesLib = import ./lib/profiles.nix { inherit lib; };
-      officialBundles = import ./lib/official-bundles.nix;
+      officialBundles = import ./lib/official-bundles.nix { inherit lib; };
 
       # The official on-demand bundles are not installation dependencies, but
       # the pinned dsh source still contains and builds them.  Profile builds
@@ -66,14 +66,12 @@
       # the shipped profile templates plus the shipped optional bundles.
       # Mirrors upstream PROFILE_TEMPLATES + OPTIONAL_BUNDLES; the
       # `official-bundles` check fails on drift with the pinned source.
-      inBoxNames = lib.unique (
-        lib.concatLists (lib.attrValues officialBundles.profileTemplates) ++ officialBundles.optional
-      );
+      inherit (officialBundles) inBoxNames;
 
       # Shipped profile templates (dsh `PROFILE_TEMPLATES`).  The module
       # installs one profile per name by default; the bundles come from the
       # dsh installation at build time, never from user configuration.
-      profileTemplates = lib.attrNames officialBundles.profileTemplates;
+      profileTemplates = officialBundles.profileTemplateNames;
 
       homeManagerModules.dsh = import ./modules/home-manager/dsh.nix {
         inherit
