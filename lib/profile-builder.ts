@@ -214,14 +214,23 @@ function addBundle(bundles: string[], bundle: string, template: string): void {
   bundles.push(bundle);
 }
 
-function resolveInstallBundle(install: string, wanted: string): string {
-  const index = path.join(install, "share", "dsh-nix", "bundles.tsv");
-  const matches: string[] = [];
-  if (fs.existsSync(index)) {
-    for (const line of fs.readFileSync(index, "utf8").split("\n")) {
+const installIndexes = new Map<string, Map<string, string[]>>();
+
+function installIndex(install: string): Map<string, string[]> {
+  const cached = installIndexes.get(install);
+  if (cached !== undefined) return cached;
+  const index = new Map<string, string[]>();
+  const add = (name: string, directory: string): void => {
+    const entries = index.get(name) ?? [];
+    entries.push(directory);
+    index.set(name, entries);
+  };
+  const table = path.join(install, "share", "dsh-nix", "bundles.tsv");
+  if (fs.existsSync(table)) {
+    for (const line of fs.readFileSync(table, "utf8").split("\n")) {
       if (line === "") continue;
       const [name, directory] = line.split("\t");
-      if (name === wanted && directory) matches.push(directory);
+      if (name && directory) add(name, directory);
     }
   } else {
     const walk = (directory: string): void => {
@@ -231,12 +240,18 @@ function resolveInstallBundle(install: string, wanted: string): string {
         if (entry.isDirectory()) walk(candidate);
         if (entry.isFile() && entry.name === "package.json") {
           const manifest = packageManifest(directory);
-          if (manifest?.name === wanted) matches.push(directory);
+          if (manifest?.name) add(manifest.name, directory);
         }
       }
     };
     walk(install);
   }
+  installIndexes.set(install, index);
+  return index;
+}
+
+function resolveInstallBundle(install: string, wanted: string): string {
+  const matches = installIndex(install).get(wanted) ?? [];
   if (matches.length !== 1) {
     fail(
       `expected exactly one installed package named ${wanted}, found ${matches.length}`,
