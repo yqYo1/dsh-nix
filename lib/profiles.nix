@@ -86,9 +86,13 @@ let
       ''
         mkdir -p "$out"
         cp ${./profile-builder.ts} "$out/profile-builder.ts"
+        cp ${./read-profile-template.ts} "$out/read-profile-template.ts"
         (cd "$out" && tsc --target ES2022 --module Node16 --moduleResolution Node16 --skipLibCheck \
           --outDir "$out" profile-builder.ts)
-        rm "$out/profile-builder.ts"
+        (cd "$out" && tsc --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck \
+          --outDir "$out" read-profile-template.ts)
+        rm "$out/profile-builder.ts" "$out/read-profile-template.ts"
+        mv "$out/read-profile-template.js" "$out/read-profile-template.mjs"
       '';
 
   buildProfile =
@@ -158,7 +162,7 @@ let
           --install ${lib.escapeShellArg installArg} \
           --patches ${patches} \
           --patch-source ${lib.escapeShellArg (if patchSource == null then "" else toString patchSource)} \
-          --reader ${./read-profile-template.mjs}
+          --reader ${builder}/read-profile-template.mjs
       '';
 
 in

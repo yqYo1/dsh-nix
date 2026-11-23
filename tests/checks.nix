@@ -225,7 +225,7 @@ in
         shipped = builtins.toJSON inBoxNames;
       }
       ''
-        templates=$(node ${rootSrc}/lib/read-profile-template.mjs "$install") || exit 1
+        templates=$(node ${dshPackage}/lib/read-profile-template.mjs "$install") || exit 1
         printf '%s\n' "$names" | jq -r '.[]' | sort > "$TMPDIR/want.txt"
         printf '%s' "$templates" | jq -r 'keys[]' | sort > "$TMPDIR/have.txt"
         if ! diff -u "$TMPDIR/want.txt" "$TMPDIR/have.txt"; then
@@ -268,7 +268,7 @@ in
       }
       ''
         expected=$(node --expose-internals --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/lib/read-profile-template.mjs ${dshPackage} web) || exit 1
+          ${dshPackage}/lib/read-profile-template.mjs ${dshPackage} web) || exit 1
         jq -e --argjson want "$expected" '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
           || { echo "profile-template: bundles differ from PROFILE_TEMPLATES.web" >&2; exit 1; }
         home="$TMPDIR/home"
@@ -326,7 +326,7 @@ in
       }
       ''
         expected=$(node --expose-internals --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/lib/read-profile-template.mjs ${dshPackage} web) || exit 1
+          ${dshPackage}/lib/read-profile-template.mjs ${dshPackage} web) || exit 1
         jq -e --argjson want "$(printf '%s' "$expected" | jq -c '. + ["@deepseek-ai/dsh-experimental-session-search"]')" \
           '.dsh.profile.bundles == $want' ${artifact}/package.json >/dev/null \
           || { echo "profile-template-extension: template bundles were not kept in order" >&2; exit 1; }
