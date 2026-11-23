@@ -110,13 +110,13 @@ in
     pkgs.runCommand "dsh-official-on-demand-check"
       {
         nativeBuildInputs = [ pkgs.jq ];
-        src = dshSrc;
         install = dshPackage.dev;
         names = builtins.toJSON onDemandBundles;
       }
       ''
-        upstream=$(sed -n '/ON_DEMAND_BUNDLES/,/\]/p' "$src/packages/util/official-bundles/src/bundles.ts" \
-          | grep -oE "'@deepseek-ai/[^']+'" | tr -d "'" | sort)
+        upstream=$(sed -n 's/^const ON_DEMAND_BUNDLES = \(.*\);/\1/p' \
+          "$install/packages/util/official-bundles/lib/index.js" \
+          | jq -r '.[]' | sort)
         want=$(printf '%s\n' "$names" | jq -r '.[]' | sort)
         if [ "$upstream" != "$want" ]; then
           echo "official-on-demand: names differ from upstream ON_DEMAND_BUNDLES" >&2
