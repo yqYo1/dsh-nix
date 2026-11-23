@@ -126,7 +126,9 @@ CURRENT_REF=${CURRENT_REF#"github:${UPSTREAM_REPO}/"}
 echo "current pin: ${CURRENT_REF}"
 
 if [ "$CURRENT_REF" != "$TAG" ]; then
-  sed -i "s|github:${UPSTREAM_REPO}/[^\"]*|github:${UPSTREAM_REPO}/${TAG}|" flake.nix
+  tmp_file=$(mktemp)
+  sed "s|github:${UPSTREAM_REPO}/[^\"]*|github:${UPSTREAM_REPO}/${TAG}|" flake.nix >"$tmp_file"
+  mv "$tmp_file" flake.nix
   echo "flake.nix retargeted to ${TAG}"
 fi
 
@@ -149,10 +151,19 @@ echo "lock verified: ${LOCKED_REV:0:12}"
 
 # Owner-file guard: only flake.nix + flake.lock + tests/flake.lock may change.
 # tests/flake.nix is owned by the test-flake author and is never touched here.
-STRAY=$(git status --porcelain | awk '{ print $2 }' | grep -v -e '^flake\.nix$' -e '^flake\.lock$' -e '^tests/flake\.lock$' || true)
+# Parse porcelain v1 with NUL separators so spaces and non-ASCII paths are
+# preserved; never rely on `awk '{print $2}'`.
+STRAY=""
+while IFS= read -r -d "" entry; do
+  path=${entry:3}
+  case "$path" in
+  flake.nix | flake.lock | tests/flake.lock) ;;
+  *) STRAY="${STRAY}${path}"$'\n' ;;
+  esac
+done < <(git status --porcelain=v1 -z)
 if [ -n "$STRAY" ]; then
   echo "update-dsh.sh: refusing to proceed with stray modifications:" >&2
-  echo "$STRAY" >&2
+  printf '%s' "$STRAY" >&2
   exit 1
 fi
 
