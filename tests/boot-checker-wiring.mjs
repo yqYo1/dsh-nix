@@ -12,7 +12,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CHECKER = join(HERE, "..", "scripts", "check-profile.mjs");
+const CHECKER =
+  process.env.CHECKER ?? join(HERE, "..", "scripts", "check-profile.ts");
 // Scratch lives under TMPDIR (the Hermes scratch dir), never a hardcoded
 // home path, so the checked-in test works on any machine.
 const SCRATCH = join(process.env.TMPDIR ?? tmpdir(), "boot-wiring");

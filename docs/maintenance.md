@@ -27,14 +27,14 @@ Commits created by automation from this result are unsigned. Automation must
 stop before push/PR if signed commits are required; never invent keys or
 bypass protection.
 
-## check-profile.mjs
+## check-profile
 
-`scripts/check-profile.mjs` boots a composed profile with dsh's own `boot()`
+`scripts/check-profile.ts` boots a composed profile with dsh's own `boot()`
 and disposes it. A non-zero exit means the tree failed to settle or an entry
 stayed pending/failed; a requested app exit is recorded and fails the check.
 It mirrors the pinned `apps/cli/src/profile-boot.ts` sequence without a heal
 step. It checks boot and disposal only; it does not prove that a plugin did not
 schedule fire-and-forget work.
 
-Usage: `check-profile.mjs <dsh-install> <profile-name> <dsh-home> [args...]`.
+Usage: `check-profile <dsh-install> <profile-name> <dsh-home> [args...]`. The compiled entry point is `check-profile.mjs`.
 See [TESTING.md](../TESTING.md) for how the checks invoke it.

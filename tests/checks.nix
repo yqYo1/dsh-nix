@@ -11,6 +11,7 @@ let
   inherit (dshNix) officialBundles;
   dshSrc = dshNix.inputs.dsh;
   dshPackage = dshNix.packages.${system}.dsh;
+  checkProfile = pkgs.callPackage (rootSrc + "/scripts/check-profile.nix") { };
 
   # The official on-demand bundles are not installation dependencies, but
   # the pinned dsh source still contains and builds them.  Profile builds
@@ -277,7 +278,7 @@ in
         chmod -R u+w "$home/profiles/web"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} web "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -339,7 +340,7 @@ in
         chmod -R u+w "$home/profiles/web-extended"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} web-extended "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -359,10 +360,10 @@ in
     (import (rootSrc + "/tests/user-npm.nix") {
       inherit pkgs;
       inherit dshPackage;
-      checker = rootSrc + "/scripts/check-profile.mjs";
+      checker = "${checkProfile}/bin/check-profile.mjs";
     }).check;
 
-  boot-checker-wiring = import (rootSrc + "/tests/boot-checker.nix") { inherit pkgs; };
+  boot-checker-wiring = import (rootSrc + "/tests/boot-checker.nix") { inherit pkgs checkProfile; };
 
   profile-regression = (import (rootSrc + "/tests/profile-regression.nix") { inherit pkgs; }).check;
 
@@ -398,7 +399,7 @@ in
         chmod -R u+w "$home/profiles/web"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} web "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -426,7 +427,7 @@ in
           > "$home/profiles/headless/cordis.patch.yml"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} headless "$home" --help \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -470,7 +471,7 @@ in
           "$home/profiles/experimental/package.json" >/dev/null
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} experimental "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -531,7 +532,7 @@ in
         grep -q 'str-replace-editor' "$home/profiles/official-plugin/cordis.patch.yml"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} official-plugin "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -580,7 +581,7 @@ in
         chmod -R u+w "$home/profiles/nix-plugin"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} nix-plugin "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -639,7 +640,7 @@ in
         test -e "$home/profiles/official-on-demand/node_modules/@deepseek-ai/dsh-subagent-claude-code/node_modules/@anthropic-ai/claude-agent-sdk"
         if ! ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} official-on-demand "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           cat "$TMPDIR/check.log" >&2
@@ -696,7 +697,7 @@ in
         mv "$TMPDIR/package.json" "$home/profiles/web-nobase/package.json"
         if ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
-          ${rootSrc}/scripts/check-profile.mjs \
+          ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} web-nobase "$home" --port 0 --no-open \
           > "$TMPDIR/check.log" 2>&1; then
           echo "profile-boot-web-nobase: expected fail-loud, got success" >&2
