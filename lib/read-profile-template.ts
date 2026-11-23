@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * Print one shipped profile template's initial bundle list as JSON.
  *

@@ -88,6 +88,11 @@ let
       (cd "$compat" && tsc --target ES2022 --module commonjs --skipLibCheck \
         --outDir "$compat" dsh-builtin-compat.ts)
       install -Dm444 "$compat/dsh-builtin-compat.js" "$out/lib/dsh-builtin-compat.cjs"
+      cp "${../lib/read-profile-template.ts}" "$out/lib/read-profile-template.ts"
+      (cd "$out/lib" && tsc --ignoreConfig --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck \
+        --outDir "$out/lib" read-profile-template.ts)
+      rm "$out/lib/read-profile-template.ts"
+      mv "$out/lib/read-profile-template.js" "$out/lib/read-profile-template.mjs"
       runHook postInstall
     '';
 
@@ -180,6 +185,7 @@ stdenv.mkDerivation {
 
     mkdir -p "$out/bin" "$out/lib"
     install -Dm444 "${dshBuild}/lib/dsh-builtin-compat.cjs" "$out/lib/dsh-builtin-compat.cjs"
+    install -Dm444 "${dshBuild}/lib/read-profile-template.mjs" "$out/lib/read-profile-template.mjs"
     makeBinaryWrapper "${nodejs}/bin/node" "$out/bin/dsh" \
       --add-flags "--expose-internals" \
       --add-flags "--require $out/lib/dsh-builtin-compat.cjs" \
@@ -195,7 +201,7 @@ stdenv.mkDerivation {
     # output rather than from the runtime installation.
     mkdir -p "$profileMeta/share/dsh-nix"
     node --expose-internals --require "${dshBuild}/lib/dsh-builtin-compat.cjs" \
-      "${../lib/read-profile-template.mjs}" "${dshBuild}" \
+      "${dshBuild}/lib/read-profile-template.mjs" "${dshBuild}" \
       > "$profileMeta/share/dsh-nix/profile-templates.json"
     runHook postInstall
   '';
