@@ -159,7 +159,10 @@ in
   official-plugin-resolution =
     pkgs.runCommand "dsh-official-plugin-resolution-check"
       {
-        nativeBuildInputs = [ pkgs.jq ];
+        nativeBuildInputs = [
+          pkgs.jq
+          pkgs.yq-go
+        ];
         src = dshSrc;
         install = dshPackage.dev;
         shipped = builtins.toJSON inBoxNames;
@@ -182,8 +185,8 @@ in
               echo "$name: declared patch $rel does not exist" >> "$TMPDIR/problems.txt"
               continue
             fi
-            grep -oE "name:[[:space:]]*['\"]?@deepseek-ai/[A-Za-z0-9._/-]+" "$f" \
-              | sed -E "s/^name:[[:space:]]*['\"]?//" >> "$TMPDIR/names.txt" || true
+            yq -r '.. | .name? // "" | select(. != "")' "$f" \
+              | grep -E '^@deepseek-ai/' >> "$TMPDIR/names.txt" || true
           done < "$TMPDIR/patches.txt"
         done < "$TMPDIR/pkgs.txt"
         if [ -s "$TMPDIR/problems.txt" ]; then
