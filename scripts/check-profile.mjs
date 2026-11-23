@@ -1,43 +1,4 @@
 #!/usr/bin/env node
-/**
- * Build-time profile check: boot a composed profile with dsh's own boot()
- * and dispose immediately.  boot() runs auditStartupEntries internally
- * (packages/boot/app-boot/src/index.ts), so a non-zero exit means the tree
- * failed to settle or a required entry stayed PENDING/FAILED — the exact
- * runtime fail-loud, surfaced at `nix build` time.  Scope is boot+dispose
- * only: the check never commits launcher readiness and never starts an
- * application task itself, but it cannot prove no plugin scheduled one —
- * some apps start their run during apply without using appReady (for
- * example headless), so an active plugin may have scheduled
- * fire-and-forget work that outlives the tree.  A nonzero appExit requested
- * during boot is recorded and fails the check (no CHECK-OK); it is never
- * waived to keep the check green.
- *
- * The sequence mirrors the primary source `apps/cli/src/profile-boot.ts`
- * at pinned dsh-v0.2.2-rc.3 (prepareProfile → composeProfile → runProfile):
- *   - loadProfile() resolves the profile against the scratch DSH_HOME, then
- *     the profile root cordis.yml is rewritten to the empty entry list
- *     (the Loader anchors baseUrl at it; a Loader write-back must never bake
- *     composed rows into it);
- *   - createRuntimeResolution({ installAnchor, profile }) computes the
- *     immutable runtime resolution before any plugin imports — there is no
- *     heal step in this path, and resolution failure must fail loud (no fallback);
- *   - readProfilePatches() stacks bundle layers in dsh.profile.bundles
- *     order, the profile's own user layer, the home-level
- *     `$DSH_HOME/cordis.patch.yml` layer, --patch overlays (none in this
- *     check), and the telemetry switch;
- *   - boot() mounts with profileContext + the frozen launch environment +
- *     PluginPackages(resolution) + cmdline args, exactly as a real
- *     `dsh --profile` run.
- *
- * Usage: check-profile.mjs <dsh-install> <profile-name> <dsh-home> [args...]
- *   <dsh-install>  the packaged dsh store path (its apps/cli/package.json
- *                  is the install anchor)
- *   <profile-name> the profile directory name under <dsh-home>/profiles
- *   <dsh-home>     a scratch DSH_HOME holding the profile under test
- *   args...        extra command-line args provided via cmdlineArgs
- *                  (web: --port 0 to avoid binding 3080; headless: the task)
- */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";

@@ -1,28 +1,3 @@
-# Offline profile artifact regression (no network, no IFD).
-#
-# Covers the advertised HM integration: `plugins` accepts raw Nix packages
-# (derivations) alongside in-box strings and local paths, in one ordered list.
-# Raw derivations defer package.json name/patch resolution to build time.
-#
-# Run offline (flake nixpkgs, no substituters needed beyond base):
-#   nix build --offline --option build-use-substitutes false \
-#     --impure --expr '(import ./tests/profile-regression.nix { pkgs = import <nixpkgs> {}; }).check' \
-#     --out-link /tmp/dsh-regression-check
-# Or via the tests flake check:
-#   nix build --offline ./tests#checks.x86_64-linux.profile-regression
-#   (once wired; this file itself needs no flake change to evaluate)
-#
-# What is asserted (see `check` below):
-#   - ordered mixture: in-box strings (exact declared order) + local PATH
-#     bundle + raw bundle DERIVATION + raw plain DERIVATION
-#   - plain dependency is symlinked but NOT activated in bundles
-#   - explicit in-box bundle order is exact, not sorted
-#   - userPatchesFile and inline userPatches are mutually exclusive; file payload preserved verbatim
-#   - inline userPatches JSON payload preserved when no file is set
-#   - explicit patchPath projects a real rc.2-consumable layer: projected
-#     node_modules manifest declares exactly the selected patch, patch bytes
-#     exist beside it in valid Cordis insert/id syntax, identity preserved
-#   - eval-time duplicate packageNames still throw; deferred nulls do not
 { pkgs }:
 
 let
@@ -54,7 +29,7 @@ let
 
   # Raw plain derivation: package.json + payload, NO bundle.patch declaration.
   # It still carries the selectable patch FILE so an explicit patchPath can
-  # project a real rc.2-consumable layer from it.
+  # project a real bundle-consumable layer from it.
   plainDrv = pkgs.runCommand "test-plain-dep" { } ''
     mkdir -p "$out"
     cat > "$out/package.json" <<'EOF'
@@ -318,10 +293,10 @@ assert !emptyEval.success;
         jq -e '.[0].insert[0].id == "test-inline-row"' "$inline/cordis.patch.yml" > /dev/null
         test "$(jq -c '.dsh.profile.bundles' "$inline/package.json")" = '["@test/local-bundle"]'
 
-        # --- explicit patchPath forces layer membership AND real rc.2 content ---
+        # --- explicit patchPath forces layer membership AND real pinned dsh content ---
         test "$(jq -c '.dsh.profile.bundles' "$forced/package.json")" = '["@test/plain-dep"]'
         jq -e '.dependencies | has("@test/plain-dep")' "$forced/package.json" > /dev/null
-        # projected manifest declares exactly the selected patch (rc.2 reads this)
+        # projected manifest declares exactly the selected patch (the pinned dsh reads this)
         test "$(jq -r '.dsh.bundle.patch' "$forced/node_modules/@test/plain-dep/package.json")" = "cordis.patch.yml"
         # manifest identity/payload preserved through the projection
         test "$(jq -r '.name' "$forced/node_modules/@test/plain-dep/package.json")" = "@test/plain-dep"

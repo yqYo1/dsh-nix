@@ -1,14 +1,3 @@
-# Test-only profile/bundle checks for dsh-nix, owned by the tests subflake.
-#
-# The root flake keeps only non-test checks (treefmt, version-consistency);
-# every check here boots or otherwise asserts on the packaged dsh
-# installation, so it lives here next to the Home Manager harness.
-# Canonical values come from the parent flake (dshNix): profilesLib,
-# officialBundles, packages, and the pinned dsh source.  Repo files are
-# addressed through rootSrc (dshNix.outPath) so the test modules' own
-# relative imports (../lib, ../modules) resolve inside the parent tree
-# under pure evaluation (same pattern as the home-manager-integration
-# check in ./flake.nix).
 {
   pkgs,
   lib,
@@ -426,7 +415,7 @@ in
         mkdir -p "$home/profiles"
         cp -a ${headlessArtifact} "$home/profiles/headless"
         chmod -R u+w "$home/profiles/headless"
-        # rc.1 starts the one-shot runner during apply, without
+        # The headless runner starts during apply without
         # appReady. This boot-only fixture disables that row and
         # parses help instead of starting a model/application task.
         # It covers base + headless startup, NOT runner execution.
