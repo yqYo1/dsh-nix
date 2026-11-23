@@ -1,5 +1,3 @@
-# Contract tests are separate from the real-package boot checks: no mock
-# result may stand in for booting the packaged rc.2 installation.
 { pkgs }:
 pkgs.runCommand "dsh-boot-checker-wiring"
   {

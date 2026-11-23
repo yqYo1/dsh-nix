@@ -7,7 +7,7 @@
 # (dsh-poc-npm-user-pkg), so the resolver is proven to read the installed
 # root instead of the derivation name. Real registry dependency chain:
 # is-odd -> is-number. The "./plugin" export exists so the lifecycle
-# truly activates under rc.2.
+# truly activates under the pinned dsh.
 #
 # Args: { pkgs }. `src` is the ./user-npm-plugin directory next to this
 # file (byte copy of the verified fixture); `npmDepsHash` is the real FOD
