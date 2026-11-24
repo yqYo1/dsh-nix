@@ -2,21 +2,8 @@
 #
 # Runs on pull requests and on every push, including main.  Main must carry
 # the same gates as the PR so a post-merge regression is caught immediately.
-# The gates run strictly in sequence in ONE job (no continue-on-error, no
-# masked gates — a red gate stops everything after it):
-#   1. root `nix flake check` (non-test checks only: treefmt formatting,
-#      version-consistency lockstep),
-#   2. tests `nix flake check` (all test/profile checks from
-#      tests/flake.lock-pinned inputs: artifact shape assertions, dsh boot
-#      checks for every profile including the fail-loud counterexample,
-#      module evaluation, pinned-HM regression),
-#   3. real host Home Manager E2E (scripts/hm-e2e.sh via the tests devShell:
-#      genuine pinned-HM activation + profile install + dsh boot),
-# plus an explicit immutability assertion that the `dsh` input is locked to a
-# commit rev (tag pins must resolve, floating refs fail here).
-# Reject lock updates and never write locks during verification.
-# tests/flake.nix references the parent via a relative
-# path:../. input, which requires Nix >= 2.26 (asserted below).
+# Root and tests flake checks run in parallel; the host Home Manager E2E waits
+# for the tests check.  No gate is continue-on-error or masked.
 name: ci
 
 on:
@@ -31,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  flake-check:
+  root-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -81,15 +68,92 @@ jobs:
           set -euo pipefail
           nix flake check --no-update-lock-file --no-write-lock-file --accept-flake-config --system "${{ steps.arch.outputs.system }}"
 
+  tests-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Configure Cachix
+        uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: yqyo1
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Assert Nix >= 2.26 (relative path inputs in tests/flake.nix)
+        run: |
+          set -euo pipefail
+          nix --version
+          ver="$(nix --version | awk '{ print $3 }')"
+          if [ "$(printf '%s\n%s\n' "2.26" "$ver" | sort -V | head -1)" != "2.26" ]; then
+            echo "Nix >= 2.26 required for relative path inputs (got $ver)" >&2
+            exit 1
+          fi
+
+      - name: Resolve runner arch
+        id: arch
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)  SYSTEM="x86_64-linux" ;;
+            aarch64) SYSTEM="aarch64-linux" ;;
+            *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          echo "system=${SYSTEM}" >> "$GITHUB_OUTPUT"
+
       - name: Flake check (tests, test/profile + pinned-HM checks)
         run: |
           set -euo pipefail
           nix flake check ./tests --no-update-lock-file --no-write-lock-file --accept-flake-config --system "${{ steps.arch.outputs.system }}"
 
-      # Real host Home Manager regression gate (SAME job, AFTER both flake
-      # checks — never a substitute for either). Runs the genuine pinned-HM
-      # activation + profile install + dsh boot in scripts/hm-e2e.sh via the
-      # tests devShell only, so no duplicate full-monorepo build is added here.
+  hm-e2e:
+    needs: tests-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Configure Cachix
+        uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: yqyo1
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Assert Nix >= 2.26 (relative path inputs in tests/flake.nix)
+        run: |
+          set -euo pipefail
+          nix --version
+          ver="$(nix --version | awk '{ print $3 }')"
+          if [ "$(printf '%s\n%s\n' "2.26" "$ver" | sort -V | head -1)" != "2.26" ]; then
+            echo "Nix >= 2.26 required for relative path inputs (got $ver)" >&2
+            exit 1
+          fi
+
+      - name: Resolve runner arch
+        id: arch
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)  SYSTEM="x86_64-linux" ;;
+            aarch64) SYSTEM="aarch64-linux" ;;
+            *) echo "unsupported runner arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          echo "system=${SYSTEM}" >> "$GITHUB_OUTPUT"
+
       - name: Real host Home Manager E2E (tests devShell)
         env:
           TMPDIR: ${{ runner.temp }}
