@@ -4,7 +4,8 @@
 # drift checks in flake.nix compare this catalog with the pinned source.  Keep
 # the lists here so the flake, module, checks, and tests do not each carry a
 # separate copy.
-{
+{ lib }:
+rec {
   # Bundles of the shipped profile templates (upstream PROFILE_TEMPLATES).
   profileTemplates = {
     acp = [
@@ -53,4 +54,9 @@
     "@deepseek-ai/dsh-subagent-codex"
     "@deepseek-ai/dsh-subagent-claude-code"
   ];
+  # Derived values keep the catalog shape and the accepted in-box names in
+  # lockstep; consumers no longer recompute the relationship themselves.
+  inBoxNames = lib.unique (builtins.concatLists (builtins.attrValues profileTemplates) ++ optional);
+  profileTemplateNames = builtins.attrNames profileTemplates;
+
 }
