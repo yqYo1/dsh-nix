@@ -54,7 +54,8 @@ let
       # come out of this rebuild, and the dsh patch loads both from
       # build/Release.
       (
-        cd node_modules/.pnpm/node-pty@*/node_modules/node-pty
+        nodepty=$(cd packages/subprocess/subprocess-local && node -p "require.resolve('node-pty/package.json')")
+        cd "$(dirname "$nodepty")"
         export HOME="$TMPDIR"
         export npm_config_nodedir=${nodejs}
         export npm_config_python=python3
