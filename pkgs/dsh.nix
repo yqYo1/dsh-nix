@@ -9,6 +9,7 @@
   python3,
   node-gyp,
   jq,
+  typescript,
   src,
 }:
 
@@ -41,6 +42,7 @@ let
       python3
       node-gyp
       jq
+      typescript
     ];
     inherit pnpmDeps;
     env.DSH_CLIENT_COMMIT_HASH = dshCommitHash;
@@ -81,7 +83,11 @@ let
             printf '%s\t%s\n' "$name" "$(dirname "$manifest")"
           done \
         | sort -u > "$out/share/dsh-nix/bundles.tsv"
-      install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
+      compat=$(mktemp -d)
+      cp "${./dsh-builtin-compat.ts}" "$compat/dsh-builtin-compat.ts"
+      (cd "$compat" && tsc --target ES2022 --module commonjs --skipLibCheck \
+        --outDir "$compat" dsh-builtin-compat.ts)
+      install -Dm444 "$compat/dsh-builtin-compat.js" "$out/lib/dsh-builtin-compat.cjs"
       runHook postInstall
     '';
 
@@ -173,7 +179,7 @@ stdenv.mkDerivation {
       -prune -exec rm -rf {} + || true
 
     mkdir -p "$out/bin" "$out/lib"
-    install -Dm444 "${./dsh-builtin-compat.cjs}" "$out/lib/dsh-builtin-compat.cjs"
+    install -Dm444 "${dshBuild}/lib/dsh-builtin-compat.cjs" "$out/lib/dsh-builtin-compat.cjs"
     makeBinaryWrapper "${nodejs}/bin/node" "$out/bin/dsh" \
       --add-flags "--expose-internals" \
       --add-flags "--require $out/lib/dsh-builtin-compat.cjs" \
