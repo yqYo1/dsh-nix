@@ -155,6 +155,7 @@ let
       {
         nativeBuildInputs = [
           pkgs.bash
+          pkgs.nodejs
           pkgs.jq
           pkgs.coreutils
           pkgs.findutils
