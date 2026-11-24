@@ -195,11 +195,11 @@ in
           exit 1
         fi
         sed -E 's#^(@deepseek-ai/[^/]+)/.*#\1#' "$TMPDIR/names.txt" | sort -u > "$TMPDIR/want.txt"
-        # -L follows the pnpm symlink farm; the depth bound stops the
-        # traversal before parent/child workspace links recurse, and
-        # still reaches every node_modules view (root, .pnpm, package).
-        find -L "$install" -maxdepth 8 -path '*/node_modules/@deepseek-ai/*/package.json' -print 2>/dev/null \
-          | sed -E 's#.*/node_modules/(@deepseek-ai/[^/]+)/package.json#\1#' | sort -u > "$TMPDIR/have.txt" || true
+        # The installation emits its package index at build time; use it
+        # instead of walking the pnpm symlink farm.
+        index="$install/share/dsh-nix/bundles.tsv"
+        [ -f "$index" ] || { echo "official-plugin-resolution: installation has no bundle index" >&2; exit 1; }
+        awk -F '\t' '{ print $1 }' "$index" | sort -u > "$TMPDIR/have.txt"
         missing=$(comm -23 "$TMPDIR/want.txt" "$TMPDIR/have.txt")
         if [ -n "$missing" ]; then
           echo "official-plugin-resolution: packages named by shipped bundle rows are absent from the installation:" >&2
