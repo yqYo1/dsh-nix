@@ -425,7 +425,10 @@ in
         # It covers base + headless startup, NOT runner execution.
         printf '%s\n' '[{"id":"headless-runner","disabled":true}]' \
           > "$home/profiles/headless/cordis.patch.yml"
-        if ! ${pkgs.nodejs}/bin/node --expose-internals \
+        # Fail closed on any outbound network attempt during boot; the
+        # headless launcher must reach CHECK-OK without egress.
+        if ! NODE_OPTIONS="--require ${./fixtures/no-net-guard.cjs}" \
+          ${pkgs.nodejs}/bin/node --expose-internals \
           --require ${dshPackage}/lib/dsh-builtin-compat.cjs \
           ${checkProfile}/bin/check-profile.mjs \
           ${dshPackage} headless "$home" --help \
