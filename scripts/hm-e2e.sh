@@ -191,7 +191,7 @@ usernpm_out=$(nix eval --impure --raw --accept-flake-config --no-update-lock-fil
 node_out=$(nix eval --impure --raw --accept-flake-config --no-update-lock-file --no-write-lock-file --expr "let h = $base; in h.nodeOutPath") ||
   fail "could not evaluate project-pinned node outPath"
 net_guard="$repo_root/tests/fixtures/no-net-guard.cjs"
-checker="$repo_root/scripts/check-profile.mjs"
+checker="$repo_root/scripts/check-profile.ts"
 for f in "$net_guard" "$checker"; do
   test -f "$f" || fail "required fixture missing: $f"
 done
@@ -404,7 +404,7 @@ if ! env -i PATH="$child_path" HOME="$usernpm_check_home" \
   XDG_DATA_HOME="$usernpm_check_home/.local/share" XDG_STATE_HOME="$usernpm_check_home/.local/state" \
   XDG_CONFIG_HOME="$usernpm_check_home/.config" XDG_CACHE_HOME="$usernpm_check_home/.cache" \
   NODE_OPTIONS="--require $net_guard" \
-  "$node_bin" --expose-internals \
+  "$node_bin" --expose-internals --experimental-strip-types \
   --require "$pkg_out/lib/dsh-builtin-compat.cjs" \
   "$checker" "$pkg_out" user-npm "$HOME/.dsh" --port 0 --no-open \
   >"$tmp/check-usernpm.log" 2>&1; then
