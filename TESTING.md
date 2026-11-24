@@ -42,7 +42,7 @@ untracked, non-ignored files before running the two flake checks.
 - `tests/boot-checker.nix` and `tests/boot-checker-wiring.mjs` — checker
   contract wiring; separate from real-package boot checks.
 
-`boot-checker-wiring.mjs` uses a mock dsh installation whose modules record
+`boot-checker-wiring.ts` uses a mock dsh installation whose modules record
 the checker's calls. It verifies the checker's prepare → resolve → compose →
 boot+dispose wiring and fail-loud propagation, but does not prove a real
 pinned-dsh boot. A real-headless no-network guard remains a separate fixture
