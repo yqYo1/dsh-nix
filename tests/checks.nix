@@ -409,6 +409,30 @@ in
         touch "$out"
       '';
 
+  # Exercise the real dsh wrapper (not the checker's internal boot API) for
+  # the profile entrypoint.  --help resolves the shipped profile and imports
+  # the launcher without starting an application task.
+  profile-cli-help =
+    pkgs.runCommand "dsh-profile-cli-help-check"
+      {
+        nativeBuildInputs = [ pkgs.nodejs ];
+      }
+      ''
+        home="$TMPDIR/home"
+        mkdir -p "$home"
+        if ! NODE_OPTIONS="--require ${./fixtures/no-net-guard.cjs}" \
+          DSH_HOME="$home" ${dshPackage}/bin/dsh --profile headless --help \
+          > "$TMPDIR/help.log" 2>&1; then
+          cat "$TMPDIR/help.log" >&2
+          exit 1
+        fi
+        grep -q '^Usage: dsh --profile headless' "$TMPDIR/help.log" \
+          || { cat "$TMPDIR/help.log" >&2; exit 1; }
+        ! grep -q 'NETWORK_FORBIDDEN' "$TMPDIR/help.log" \
+          || { cat "$TMPDIR/help.log" >&2; exit 1; }
+        touch "$out"
+      '';
+
   profile-boot-headless =
     pkgs.runCommand "dsh-profile-boot-headless-check"
       {
