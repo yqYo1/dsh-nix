@@ -218,6 +218,7 @@ let
       profile = declaration;
       install = cfg.package.dev or cfg.package;
       profileMeta = cfg.package.profileMeta or null;
+      catalogNames = inBoxNames;
     }
   ) declarations;
 

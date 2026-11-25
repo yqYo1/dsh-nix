@@ -37,6 +37,7 @@ interface Options {
   template: string;
   templateSource: string;
   install: string;
+  catalog: string;
   patches: string;
   patchSource: string;
   reader: string;
@@ -73,6 +74,7 @@ function parseArgs(argv: string[]): Options {
     template: values.template ?? "",
     templateSource: values.templateSource ?? "",
     install: values.install ?? "",
+    catalog: values.catalog ?? "",
     patches: values.patches,
     patchSource: values.patchSource ?? "",
     reader: values.reader,
@@ -323,6 +325,20 @@ function main(): void {
   }
 
   const bundles = templateBundles(options);
+  if (options.catalog !== "") {
+    const catalog = readJson(options.catalog, "profile catalog");
+    if (!Array.isArray(catalog)) fail("profile catalog must be an array");
+    if (catalog.length > 0) {
+      const allowed = new Set(catalog);
+      for (const bundle of bundles) {
+        if (!allowed.has(bundle)) {
+          fail(
+            `template ${options.template} includes ${bundle}, which is not in the configured catalog`,
+          );
+        }
+      }
+    }
+  }
   for (const entry of metadata.classes) {
     let bundle = "";
     if (entry.kind === "in-box" || entry.kind === "install-bundle") {

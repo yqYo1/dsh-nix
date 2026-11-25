@@ -400,6 +400,7 @@ let
       profilesLib.buildProfile {
         inherit pkgs;
         profile = d;
+        catalogNames = inBoxNames;
       }
     ) decls;
 

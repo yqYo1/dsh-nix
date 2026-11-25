@@ -101,6 +101,7 @@ let
       profile,
       install ? null,
       profileMeta ? null,
+      catalogNames ? [ ],
     }:
     let
       template = profile.extends or null;
@@ -140,6 +141,11 @@ let
         }
       );
       patches = pkgs.writeText "dsh-profile-patches.json" (builtins.toJSON profile.userPatches);
+      catalog =
+        if catalogNames == [ ] then
+          ""
+        else
+          toString (pkgs.writeText "dsh-profile-catalog.json" (builtins.toJSON catalogNames));
       patchSource =
         if profile.userPatchesFile != null then builtins.path { path = profile.userPatchesFile; } else null;
       builder = profileBuilder pkgs;
@@ -160,6 +166,7 @@ let
           --template ${lib.escapeShellArg (if template == null then "" else template)} \
           --template-source ${lib.escapeShellArg (if template == null then "" else templateSource)} \
           --install ${lib.escapeShellArg installArg} \
+          --catalog ${lib.escapeShellArg catalog} \
           --patches ${patches} \
           --patch-source ${lib.escapeShellArg (if patchSource == null then "" else toString patchSource)} \
           --reader ${builder}/read-profile-template.mjs
