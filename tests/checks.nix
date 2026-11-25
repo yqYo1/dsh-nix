@@ -66,6 +66,31 @@ in
   # excludes them without a path allowlist and cannot miss a bundle
   # placed anywhere else in the tree; they are covered by the
   # official-on-demand check and linked at build time.
+  # The README's official-bundle section is part of the public catalog
+  # surface.  Keep its names in lockstep with the catalog rather than
+  # silently drifting when a bundle is added or removed.
+  readme-catalog =
+    pkgs.runCommand "dsh-readme-catalog-check"
+      {
+        nativeBuildInputs = [
+          pkgs.coreutils
+          pkgs.gnugrep
+          pkgs.jq
+        ];
+        src = rootSrc;
+        names = builtins.toJSON (inBoxNames ++ onDemandBundles);
+      }
+      ''
+        sed -n '/^### Official bundles$/,/^### Out-of-tree plugins/p' "$src/README.md" \
+          | grep -oE '@deepseek-ai/[A-Za-z0-9._/-]+' | sort -u > "$TMPDIR/readme.txt"
+        printf '%s\n' "$names" | jq -r '.[]' | sort -u > "$TMPDIR/catalog.txt"
+        if ! diff -u "$TMPDIR/catalog.txt" "$TMPDIR/readme.txt"; then
+          echo "readme-catalog: README and lib/official-bundles.nix disagree" >&2
+          exit 1
+        fi
+        touch "$out"
+      '';
+
   official-bundles =
     pkgs.runCommand "dsh-official-bundles-check"
       {
