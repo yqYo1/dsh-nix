@@ -93,6 +93,7 @@ let
         }
         // agentDecl
       );
+      catalogNames = inBoxNames;
     }
   );
   # Expected immutable user-npm artifact, built from THE SAME module
@@ -107,6 +108,7 @@ let
         }
         // userNpmDecl
       );
+      catalogNames = inBoxNames;
     }
   );
 in
