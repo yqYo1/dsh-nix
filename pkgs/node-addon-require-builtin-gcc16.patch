@@ -1,0 +1,43 @@
+--- a/packages/native/src/runtime_probe/getter_decoder.cc
++++ b/packages/native/src/runtime_probe/getter_decoder.cc
+@@ -62,6 +62,7 @@
+   kMovRegMem,   // REX.W 8b /r            reg <- [base + disp]
+   kMovMemReg,   // REX.W 89 /r            [base + disp] <- reg
+   kMovRegReg,   // REX.W 89|8b /r, mod=11 reg <-> reg
++  kSelfZero,    // 31|33|29|2b /r, mod=11, reg==rm
+   kUnknown,
+ };
+ 
+@@ -103,9 +104,19 @@
+     return insn;
+   }
+ 
+-  // The remaining forms are all REX.W (0x48) MOV r/m64 instructions. Restrict
+-  // to REX.W with no register extensions (0x48); the getters only touch the
+-  // legacy low-8 registers, so a wider REX means "not a getter we understand".
++  {
++    size_t op = 0;
++    if (p[0] == 0x48) { if (remaining < 3) return insn; op = 1; }
++    else if (remaining < 2) return insn;
++    const uint8_t candidate = p[op];
++    if (candidate == 0x31 || candidate == 0x33 || candidate == 0x29 || candidate == 0x2b) {
++      const uint8_t modrm = p[op + 1];
++      if ((modrm >> 6) == 0x3 && ((modrm >> 3) & 0x7) == (modrm & 0x7)) {
++        insn.op = X64Op::kSelfZero; insn.length = op + 2; return insn;
++      }
++    }
++  }
++
+   if (p[0] != 0x48 || remaining < 3) return insn;
+   const uint8_t opcode = p[1];
+   if (opcode != 0x89 && opcode != 0x8b) return insn;
+@@ -184,7 +195,8 @@
+       case X64Op::kPushRbp:
+       case X64Op::kPopRbp:
+       case X64Op::kMovRegReg:
+-        break;  // prologue / epilogue / register shuffling: no effect on offset
++      case X64Op::kSelfZero:
++        break;  // prologue / epilogue / dead register clear: no effect on offset
+       case X64Op::kMovRegMem:
+         if (insn.base != this_reg) return body;  // reads an unexpected object
+         if (body.found_load) return body;        // getters load one field only

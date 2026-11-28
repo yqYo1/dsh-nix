@@ -89,12 +89,19 @@
       # `pkgs.dsh` for any consumer applying the overlay.  The deps FOD is
       # built from the pinned fetch support so this path keeps the hash
       # valid under consumer nixpkgs overrides.
-      overlay = final: _prev: {
-        dsh = final.callPackage ./pkgs/dsh.nix {
-          src = dsh;
-          fetchPnpmDeps = fetchPnpmDepsFor final.stdenv.hostPlatform.system;
+      overlay =
+        final: _prev:
+        let
+          patchedAddon = final.callPackage ./pkgs/node-addon-require-builtin.nix { };
+        in
+        {
+          inherit patchedAddon;
+          dsh = final.callPackage ./pkgs/dsh.nix {
+            src = dsh;
+            fetchPnpmDeps = fetchPnpmDepsFor final.stdenv.hostPlatform.system;
+            inherit patchedAddon;
+          };
         };
-      };
     in
     {
       inherit
@@ -118,9 +125,11 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          patchedAddon = pkgs.callPackage ./pkgs/node-addon-require-builtin.nix { };
           dshPackage = pkgs.callPackage ./pkgs/dsh.nix {
             src = dsh;
             fetchPnpmDeps = fetchPnpmDepsFor system;
+            inherit patchedAddon;
           };
         in
         {
