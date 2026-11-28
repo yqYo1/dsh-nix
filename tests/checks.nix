@@ -438,6 +438,24 @@ in
         touch "$out"
       '';
 
+  # The patched addon must make the wrapper independent of the compat shim.
+  runtime-no-compat-preload =
+    pkgs.runCommand "dsh-runtime-no-compat-preload-check"
+      {
+        nativeBuildInputs = [ pkgs.gnugrep ];
+      }
+      ''
+        if grep -aq -- '--expose-internals' ${dshPackage}/bin/dsh; then
+          echo "runtime wrapper still exposes Node internals" >&2
+          exit 1
+        fi
+        if grep -aq 'dsh-builtin-compat.cjs' ${dshPackage}/bin/dsh; then
+          echo "runtime wrapper still preloads the compat shim" >&2
+          exit 1
+        fi
+        touch "$out"
+      '';
+
   # Boot the real dsh wrapper's web profile and stop it after the server
   # reports its URL.  This exercises the production launcher + profile
   # resolution, not the checker's internal boot API.

@@ -3,6 +3,7 @@
   stdenv,
   nodejs,
   pnpm_11,
+  patchedAddon ? null,
   pnpmConfigHook,
   fetchPnpmDeps,
   makeBinaryWrapper,
@@ -192,12 +193,33 @@ stdenv.mkDerivation {
       ln -s ".pnpm/$(basename "$zod_dir")/node_modules/zod" "$out/node_modules/zod"
     fi
 
+    ${
+      if patchedAddon == null then
+        ""
+      else
+        ''
+          addon_abi=${if stdenv.hostPlatform.isAarch64 then "linux-arm64-gnu" else "linux-x64-gnu"}
+          addon_pkg=$(find "$out/node_modules/.pnpm" -type d \
+            -path "*/node_modules/node-addon-require-builtin-''${addon_abi}" -print -quit)
+          if [ -z "$addon_pkg" ]; then
+            echo "patched addon: node-addon-require-builtin-''${addon_abi}@0.1.9 not found" >&2
+            exit 1
+          fi
+          install -Dm444 "${patchedAddon}/lib/require_builtin.node" \
+            "$addon_pkg/prebuilt/''${addon_abi}-napi-v9.node"
+        ''
+    }
+
     mkdir -p "$out/bin" "$out/lib"
     install -Dm444 "${dshBuild}/lib/dsh-builtin-compat.cjs" "$out/lib/dsh-builtin-compat.cjs"
     install -Dm444 "${dshBuild}/lib/read-profile-template.mjs" "$out/lib/read-profile-template.mjs"
     makeBinaryWrapper "${nodejs}/bin/node" "$out/bin/dsh" \
-      --add-flags "--expose-internals" \
-      --add-flags "--require $out/lib/dsh-builtin-compat.cjs" \
+      ${
+        if patchedAddon == null then
+          ''--add-flags "--expose-internals" --add-flags "--require $out/lib/dsh-builtin-compat.cjs"''
+        else
+          ""
+      } \
       --add-flags "$out/apps/cli/lib/bin.js" \
       --prefix PATH : "${
         lib.makeBinPath [
