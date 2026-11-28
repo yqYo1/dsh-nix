@@ -431,6 +431,10 @@ in
           exit 1
         fi
         grep -q 'CHECK-OK' "$TMPDIR/check.log" || { cat "$TMPDIR/check.log" >&2; exit 1; }
+        if grep -Eq 'did not activate|ERR_MODULE_NOT_FOUND|Cannot find package' "$TMPDIR/check.log"; then
+          cat "$TMPDIR/check.log" >&2
+          exit 1
+        fi
         touch "$out"
       '';
 
