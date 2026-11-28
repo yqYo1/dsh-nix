@@ -438,6 +438,43 @@ in
         touch "$out"
       '';
 
+  # Boot the real dsh wrapper's web profile and stop it after the server
+  # reports its URL.  This exercises the production launcher + profile
+  # resolution, not the checker's internal boot API.
+  profile-cli-web =
+    pkgs.runCommand "dsh-profile-cli-web-check"
+      {
+        nativeBuildInputs = [
+          pkgs.nodejs
+          pkgs.coreutils
+        ];
+      }
+      ''
+        home="$TMPDIR/home"
+        mkdir -p "$home/profiles"
+        cp -a ${webArtifact} "$home/profiles/web"
+        chmod -R u+w "$home/profiles/web"
+        set +e
+        NODE_OPTIONS="--require ${./fixtures/no-net-guard.cjs}" \
+          DSH_HOME="$home" timeout 15 ${dshPackage}/bin/dsh \
+          --profile web --port 0 --no-open > "$TMPDIR/web.log" 2>&1
+        rc=$?
+        set -e
+        # timeout returns 124 after a successful long-running server.
+        if [ "$rc" -ne 124 ]; then
+          cat "$TMPDIR/web.log" >&2
+          echo "profile-cli-web: dsh web exited unexpectedly (rc=$rc)" >&2
+          exit 1
+        fi
+        grep -q '^dsh web: http://' "$TMPDIR/web.log" \
+          || { cat "$TMPDIR/web.log" >&2; exit 1; }
+        if grep -Eq 'did not activate|ERR_MODULE_NOT_FOUND|Cannot find package|NETWORK_FORBIDDEN' "$TMPDIR/web.log"; then
+          cat "$TMPDIR/web.log" >&2
+          exit 1
+        fi
+        touch "$out"
+      '';
+
   # Exercise the real dsh wrapper (not the checker's internal boot API) for
   # the profile entrypoint.  --help resolves the shipped profile and imports
   # the launcher without starting an application task.
