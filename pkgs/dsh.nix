@@ -183,6 +183,15 @@ stdenv.mkDerivation {
          -o -name 'jsdom' -o -name '@testing-library' -o -name 'fast-check' \) \
       -prune -exec rm -rf {} + || true
 
+    # `dsh-web` imports `zod` from its typert host/client entries without
+    # declaring it as a direct dependency.  pnpm's isolated layout keeps it
+    # under .pnpm only, so expose the single installed copy at the runtime
+    # root; package-local imports then resolve through Node's lookup.
+    zod_dir=$(find "$out/node_modules/.pnpm" -maxdepth 1 -type d -name 'zod@*' -print | sort -V | tail -1)
+    if [ -n "$zod_dir" ]; then
+      ln -s ".pnpm/$(basename "$zod_dir")/node_modules/zod" "$out/node_modules/zod"
+    fi
+
     mkdir -p "$out/bin" "$out/lib"
     install -Dm444 "${dshBuild}/lib/dsh-builtin-compat.cjs" "$out/lib/dsh-builtin-compat.cjs"
     install -Dm444 "${dshBuild}/lib/read-profile-template.mjs" "$out/lib/read-profile-template.mjs"
